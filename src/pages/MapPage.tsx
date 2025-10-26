@@ -34,7 +34,7 @@ export default function MapPage() {
   const [center, setCenter] = useState<[number, number]>([37.5665, 126.9780]); // Seoul default
 
   const trips = useLiveQuery(() => 
-    db.trips.filter(t => t.lat && t.lng).toArray(),
+    db.trips.filter(t => t.lat != null && t.lng != null).toArray(),
     []
   ) || [];
 
