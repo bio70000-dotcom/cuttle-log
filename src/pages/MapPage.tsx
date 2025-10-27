@@ -50,7 +50,7 @@ export default function MapPage() {
 
   const spots = useLiveQuery(() => db.spots.toArray(), []) || [];
 
-  const vworldKey = localStorage.getItem('api_key_vworld') || '';
+  const vworldKey = '16F0D487-31DC-3C29-8C19-B91602D05200';
   const enableKHOA = localStorage.getItem('map_khoa_overlay') !== 'false';
 
   useEffect(() => {
@@ -123,17 +123,9 @@ export default function MapPage() {
     return null;
   };
 
-  const baseTileUrl = vworldKey
-    ? `https://api.vworld.kr/req/wmts/1.0.0/${vworldKey}/Base/{z}/{y}/{x}.png`
-    : 'https://tile.openstreetmap.kr/{z}/{x}/{y}.png';
-
-  const baseTileAttribution = vworldKey
-    ? '© VWorld / 국토지리정보원'
-    : '© OpenStreetMap contributors';
-
-  const satelliteTileUrl = vworldKey
-    ? `https://api.vworld.kr/req/wmts/1.0.0/${vworldKey}/Satellite/{z}/{y}/{x}.jpeg`
-    : null;
+  const baseTileUrl = `https://api.vworld.kr/req/wmts/1.0.0/${vworldKey}/Base/{z}/{y}/{x}.png`;
+  const baseTileAttribution = '© VWorld / 국토지리정보원';
+  const satelliteTileUrl = `https://api.vworld.kr/req/wmts/1.0.0/${vworldKey}/Satellite/{z}/{y}/{x}.jpeg`;
 
   return (
     <div className="h-screen w-full pb-16">
@@ -199,13 +191,6 @@ export default function MapPage() {
         </Card>
       )}
 
-      {!vworldKey && (
-        <Card className="fixed bottom-20 left-4 right-4 z-[1000] p-3 shadow-lg bg-yellow-50 border-yellow-200">
-          <p className="text-sm text-yellow-900">
-            설정에서 VWorld 키를 입력하면 더 나은 지도를 사용할 수 있습니다.
-          </p>
-        </Card>
-      )}
 
       <div className="h-full w-full">
         <MapContainer
@@ -223,17 +208,17 @@ export default function MapPage() {
               <TileLayer
                 attribution={baseTileAttribution}
                 url={baseTileUrl}
+                maxZoom={19}
               />
             </LayersControl.BaseLayer>
             
-            {satelliteTileUrl && (
-              <LayersControl.BaseLayer name="위성지도">
-                <TileLayer
-                  attribution="© VWorld / 국토지리정보원"
-                  url={satelliteTileUrl}
-                />
-              </LayersControl.BaseLayer>
-            )}
+            <LayersControl.BaseLayer name="위성지도">
+              <TileLayer
+                attribution="© VWorld / 국토지리정보원"
+                url={satelliteTileUrl}
+                maxZoom={19}
+              />
+            </LayersControl.BaseLayer>
 
             {enableKHOA && (
               <LayersControl.Overlay name="해양 정보">
