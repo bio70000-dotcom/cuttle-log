@@ -34,6 +34,30 @@ function MapController({ center }: { center: [number, number] }) {
   return null;
 }
 
+function MapClickHandler({ 
+  isAddingSpot, 
+  onMapClick 
+}: { 
+  isAddingSpot: boolean; 
+  onMapClick: (e: L.LeafletMouseEvent) => void;
+}) {
+  const map = useMap();
+  
+  useEffect(() => {
+    if (isAddingSpot) {
+      map.on('click', onMapClick);
+    } else {
+      map.off('click', onMapClick);
+    }
+    
+    return () => {
+      map.off('click', onMapClick);
+    };
+  }, [isAddingSpot, map, onMapClick]);
+  
+  return null;
+}
+
 export default function MapPage() {
   const { position } = useGeolocation();
   const [center, setCenter] = useState<[number, number]>([36.5, 127.8]); // Korea default
@@ -103,24 +127,6 @@ export default function MapPage() {
         });
       }
     }
-  };
-
-  const MapClickHandler = () => {
-    const map = useMap();
-    
-    useEffect(() => {
-      if (isAddingSpot) {
-        map.on('click', handleMapClick);
-      } else {
-        map.off('click', handleMapClick);
-      }
-      
-      return () => {
-        map.off('click', handleMapClick);
-      };
-    }, [isAddingSpot, map]);
-    
-    return null;
   };
 
   const baseTileUrl = `https://api.vworld.kr/req/wmts/1.0.0/${vworldKey}/Base/{z}/{y}/{x}.png`;
@@ -201,7 +207,7 @@ export default function MapPage() {
           maxBoundsViscosity={0.8}
         >
           <MapController center={center} />
-          <MapClickHandler />
+          <MapClickHandler isAddingSpot={isAddingSpot} onMapClick={handleMapClick} />
           
           <LayersControl position="topright">
             <LayersControl.BaseLayer checked name="기본지도">
