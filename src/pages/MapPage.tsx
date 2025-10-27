@@ -220,7 +220,7 @@ export default function MapPage() {
               />
             </LayersControl.BaseLayer>
 
-            {enableKHOA && (
+            {enableKHOA ? (
               <LayersControl.Overlay name="해양 정보">
                 <WMSTileLayer
                   url="https://www.khoa.go.kr/oceangrid/wms/map/map_wms.jsp"
@@ -232,7 +232,7 @@ export default function MapPage() {
                   attribution="© KHOA"
                 />
               </LayersControl.Overlay>
-            )}
+            ) : null}
           </LayersControl>
 
           {position && (
@@ -241,8 +241,8 @@ export default function MapPage() {
             </Marker>
           )}
 
-          {trips.map((trip) => (
-            trip.lat && trip.lng && (
+          {trips.map((trip) => 
+            trip.lat && trip.lng ? (
               <Marker key={trip.id} position={[trip.lat, trip.lng]}>
                 <Popup>
                   <div>
@@ -251,8 +251,8 @@ export default function MapPage() {
                   </div>
                 </Popup>
               </Marker>
-            )
-          ))}
+            ) : null
+          )}
 
           {spots.map((spot) => (
             <Marker key={spot.id} position={[spot.lat, spot.lng]}>
