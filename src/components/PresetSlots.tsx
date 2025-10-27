@@ -1,6 +1,8 @@
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { RigPreset, EgiPreset } from '@/db/schema';
+import { Settings } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 interface PresetSlotsProps {
   rigPresets: RigPreset[];
@@ -19,17 +21,36 @@ export function PresetSlots({
   onRigSlotChange,
   onEgiSlotChange,
 }: PresetSlotsProps) {
-  const getRigPreset = (slot: 'A' | 'B' | 'C') => rigPresets.find(p => p.slot === slot);
-  const getEgiPreset = (slot: 'A' | 'B' | 'C') => egiPresets.find(p => p.slot === slot);
+  const navigate = useNavigate();
+
+  const getRigPreset = (slot: 'A' | 'B' | 'C') => {
+    return rigPresets.find(p => p.slot === slot);
+  };
+
+  const getEgiPreset = (slot: 'A' | 'B' | 'C') => {
+    return egiPresets.find(p => p.slot === slot);
+  };
 
   const activeRig = getRigPreset(activeRigSlot);
   const activeEgi = getEgiPreset(activeEgiSlot);
 
   return (
-    <Card className="p-4 space-y-4">
-      <div>
-        <h3 className="font-semibold mb-2">단차 프리셋</h3>
-        <div className="flex gap-2">
+    <Card className="p-4">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="font-semibold">단차/에기 프리셋</h2>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => navigate('/presets')}
+        >
+          <Settings className="w-4 h-4" />
+        </Button>
+      </div>
+
+      {/* Rig Presets */}
+      <div className="mb-4">
+        <div className="text-sm text-muted-foreground mb-2">단차 프리셋</div>
+        <div className="flex gap-2 mb-3">
           {(['A', 'B', 'C'] as const).map(slot => {
             const preset = getRigPreset(slot);
             return (
@@ -37,29 +58,36 @@ export function PresetSlots({
                 key={slot}
                 variant={activeRigSlot === slot ? 'default' : 'outline'}
                 size="sm"
+                className="flex-1 flex flex-col h-auto py-2"
                 onClick={() => onRigSlotChange(slot)}
-                className="flex-1"
               >
-                {slot}
+                <span className="font-bold">{slot}</span>
                 {preset && (
-                  <span className="ml-1 text-xs opacity-70">
-                    {preset.totalLenCm}cm
+                  <span className="text-xs mt-1 opacity-90">
+                    {preset.sinkerDropLength || '미설정'}
                   </span>
                 )}
               </Button>
             );
           })}
         </div>
+        
         {activeRig && (
-          <p className="text-xs text-muted-foreground mt-2">
-            {activeRig.name} - 전장 {activeRig.totalLenCm}cm, 가지 {activeRig.branchLenCm}cm, 봉돌 {activeRig.sinkerNo}호
-          </p>
+          <div className="bg-accent/50 p-3 rounded-lg text-sm">
+            <div className="font-medium mb-1">{activeRig.name || `단차 ${activeRigSlot}`}</div>
+            <div className="text-muted-foreground space-y-1">
+              <div>봉돌단차: {activeRig.sinkerDropLength || '미설정'}</div>
+              <div>가지줄단차: {activeRig.branchLineLength || '미설정'}</div>
+              {activeRig.notes && <div className="text-xs mt-2">{activeRig.notes}</div>}
+            </div>
+          </div>
         )}
       </div>
 
+      {/* Egi Presets */}
       <div>
-        <h3 className="font-semibold mb-2">에기 프리셋</h3>
-        <div className="flex gap-2">
+        <div className="text-sm text-muted-foreground mb-2">에기 프리셋</div>
+        <div className="flex gap-2 mb-3">
           {(['A', 'B', 'C'] as const).map(slot => {
             const preset = getEgiPreset(slot);
             return (
@@ -67,30 +95,41 @@ export function PresetSlots({
                 key={slot}
                 variant={activeEgiSlot === slot ? 'default' : 'outline'}
                 size="sm"
+                className="flex-1 flex flex-col h-auto py-2"
                 onClick={() => onEgiSlotChange(slot)}
-                className="flex-1"
               >
-                {slot}
+                <span className="font-bold">{slot}</span>
                 {preset && (
-                  <span className="ml-1 text-xs opacity-70">
-                    {preset.size}호
+                  <span className="text-xs mt-1 opacity-90">
+                    {preset.size || '미설정'}
                   </span>
                 )}
               </Button>
             );
           })}
         </div>
+        
         {activeEgi && (
-          <p className="text-xs text-muted-foreground mt-2">
-            {activeEgi.name} - {activeEgi.size}호, {activeEgi.color}, {activeEgi.finish}
-          </p>
+          <div className="bg-accent/50 p-3 rounded-lg text-sm">
+            <div className="font-medium mb-1">{activeEgi.name || `에기 ${activeEgiSlot}`}</div>
+            <div className="text-muted-foreground space-y-1">
+              <div>사이즈: {activeEgi.size || '미설정'}</div>
+              <div>색상: {activeEgi.color || '미설정'}</div>
+              <div>마감: {activeEgi.finish || '미설정'}</div>
+              {activeEgi.notes && <div className="text-xs mt-2">{activeEgi.notes}</div>}
+            </div>
+          </div>
         )}
       </div>
 
-      <div className="pt-2 border-t">
-        <p className="text-sm">
-          <span className="font-medium">현재:</span> 단차 {activeRigSlot} · 에기 {activeEgiSlot}
-        </p>
+      {/* Current Selection Summary */}
+      <div className="mt-4 pt-4 border-t text-center text-sm">
+        <span className="text-muted-foreground">현재 조합: </span>
+        <span className="font-semibold">
+          단차{activeRigSlot} ({activeRig?.sinkerDropLength || '?'}/{activeRig?.branchLineLength || '?'})
+          {' · '}
+          에기{activeEgiSlot} ({activeEgi?.size || '?'} {activeEgi?.color || ''})
+        </span>
       </div>
     </Card>
   );

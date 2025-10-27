@@ -32,9 +32,8 @@ export interface RigPreset {
   id?: number;
   slot: 'A' | 'B' | 'C';
   name?: string;
-  totalLenCm?: number;
-  branchLenCm?: number;
-  sinkerNo?: number;
+  sinkerDropLength?: string; // 10cm / 15cm / 20cm / custom
+  branchLineLength?: string; // 직결 / 10cm / 15cm / 20cm / custom
   notes?: string;
 }
 
@@ -42,9 +41,9 @@ export interface EgiPreset {
   id?: number;
   slot: 'A' | 'B' | 'C';
   name?: string;
-  size?: '2.5' | '3.0' | '3.5' | '4.0';
-  color?: string; // 핑크, 오렌지, 네온, 야광
-  finish?: '광택' | '무광' | '야광';
+  size?: string; // 2.5 / 3.0 / custom
+  color?: string; // 핑크 / 오렌지 / 네온 / 야광 / custom
+  finish?: string; // 광택 / 무광 / 야광
   notes?: string;
 }
 

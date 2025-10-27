@@ -10,6 +10,7 @@ import CalendarPage from "./pages/CalendarPage";
 import AnalyticsPage from "./pages/AnalyticsPage";
 import SettingsPage from "./pages/SettingsPage";
 import DiagnosticsPage from "./pages/DiagnosticsPage";
+import PresetEditorPage from "./pages/PresetEditorPage";
 import NotFound from "./pages/NotFound";
 import { BottomNav } from "./components/BottomNav";
 import { useEffect } from "react";
@@ -35,6 +36,7 @@ const App = () => {
             <Route path="/calendar" element={<CalendarPage />} />
             <Route path="/analytics" element={<AnalyticsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/presets" element={<PresetEditorPage />} />
             <Route path="/diagnostics" element={<DiagnosticsPage />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />

@@ -9,16 +9,16 @@ export async function seedDatabase() {
 
   // Seed rig presets
   await db.rigPresets.bulkAdd([
-    { slot: 'A', name: '기본 단차', totalLenCm: 180, branchLenCm: 40, sinkerNo: 15 },
-    { slot: 'B', name: '짧은 단차', totalLenCm: 150, branchLenCm: 30, sinkerNo: 10 },
-    { slot: 'C', name: '긴 단차', totalLenCm: 200, branchLenCm: 50, sinkerNo: 20 },
+    { slot: 'A', name: '표준형', sinkerDropLength: '15cm', branchLineLength: '10cm', notes: '기본 세팅' },
+    { slot: 'B', name: '긴단차', sinkerDropLength: '20cm', branchLineLength: '15cm', notes: '조류 강할 때' },
+    { slot: 'C', name: '직결형', sinkerDropLength: '10cm', branchLineLength: '직결', notes: '빠른 액션' },
   ]);
 
   // Seed egi presets
   await db.egiPresets.bulkAdd([
-    { slot: 'A', name: '핑크 3호', size: '3.0', color: '핑크', finish: '광택' },
-    { slot: 'B', name: '오렌지 3호', size: '3.0', color: '오렌지', finish: '무광' },
-    { slot: 'C', name: '야광 2.5호', size: '2.5', color: '야광', finish: '야광' },
+    { slot: 'A', name: '주간용', size: '3.0', color: '핑크', finish: '광택' },
+    { slot: 'B', name: '야간용', size: '3.0', color: '네온', finish: '야광' },
+    { slot: 'C', name: '탁한물', size: '2.5', color: '오렌지', finish: '광택' },
   ]);
 
   // Sample trip 1

@@ -1,5 +1,6 @@
 import { Card } from '@/components/ui/card';
 import { CatchEvent, RigPreset, EgiPreset } from '@/db/schema';
+import { format } from 'date-fns';
 
 interface RecentEventsProps {
   events: CatchEvent[];
@@ -8,20 +9,6 @@ interface RecentEventsProps {
 }
 
 export function RecentEvents({ events, rigPresets, egiPresets }: RecentEventsProps) {
-  const formatTime = (date: Date) => {
-    return new Date(date).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
-  };
-
-  const getRigName = (slot: 'A' | 'B' | 'C') => {
-    const preset = rigPresets.find(p => p.slot === slot);
-    return preset?.name || `단차${slot}`;
-  };
-
-  const getEgiName = (slot: 'A' | 'B' | 'C') => {
-    const preset = egiPresets.find(p => p.slot === slot);
-    return preset?.name || `에기${slot}`;
-  };
-
   if (events.length === 0) {
     return (
       <Card className="p-4">
@@ -34,21 +21,34 @@ export function RecentEvents({ events, rigPresets, egiPresets }: RecentEventsPro
   return (
     <Card className="p-4">
       <h3 className="font-semibold mb-3">최근 기록</h3>
-      <div className="space-y-2">
-        {events.slice(0, 3).map((event) => (
-          <div key={event.id} className="text-sm flex items-center justify-between py-2 border-b last:border-0">
-            <div>
-              <span className="font-medium">{formatTime(event.at)}</span>
-              <span className="text-muted-foreground mx-2">·</span>
-              <span>{getRigName(event.rigSlot)}</span>
-              <span className="text-muted-foreground mx-1">·</span>
-              <span>{getEgiName(event.egiSlot)}</span>
+      <div className="space-y-3">
+        {events.map((event) => {
+          const rig = rigPresets.find(r => r.slot === event.rigSlot);
+          const egi = egiPresets.find(e => e.slot === event.egiSlot);
+          
+          return (
+            <div key={event.id} className="pb-3 border-b last:border-0">
+              <div className="flex items-center justify-between mb-1">
+                <div className="font-medium">
+                  {format(new Date(event.at), 'HH:mm')}
+                </div>
+                <div className="text-sm font-semibold">
+                  {event.sizeCm ? `${event.sizeCm}cm` : '1수'}
+                </div>
+              </div>
+              <div className="text-sm text-muted-foreground">
+                단차{event.rigSlot} ({rig?.sinkerDropLength || '?'}/{rig?.branchLineLength || '?'})
+                {' · '}
+                에기{event.egiSlot} ({egi?.size || '?'} {egi?.color || ''})
+              </div>
+              {event.kept !== undefined && (
+                <div className="text-xs text-muted-foreground mt-1">
+                  {event.kept ? '보관' : '방생'}
+                </div>
+              )}
             </div>
-            <div className="font-medium">
-              {event.sizeCm ? `${event.sizeCm}cm` : '1수'}
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </Card>
   );
