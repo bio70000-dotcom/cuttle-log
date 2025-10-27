@@ -74,6 +74,16 @@ export interface Outbox {
   lastError?: string;
 }
 
+export interface Spot {
+  id?: number;
+  name?: string;
+  lat: number;
+  lng: number;
+  waterType?: string;
+  notes?: string;
+  createdAt: Date;
+}
+
 export interface AppSettings {
   id?: number;
   key: string;
@@ -89,6 +99,7 @@ export class FishingLogDB extends Dexie {
   catchEvents!: Table<CatchEvent>;
   outbox!: Table<Outbox>;
   settings!: Table<AppSettings>;
+  spots!: Table<Spot>;
 
   constructor() {
     super('FishingLogDB');
@@ -100,6 +111,7 @@ export class FishingLogDB extends Dexie {
       catchEvents: '++id, tripId, at, rigSlot, egiSlot',
       outbox: '++id, createdAt, entityType',
       settings: '++id, key',
+      spots: '++id, lat, lng, createdAt',
     });
   }
 }

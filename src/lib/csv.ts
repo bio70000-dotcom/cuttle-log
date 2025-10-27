@@ -32,6 +32,7 @@ const CSV_HEADERS = [
 
 export async function exportToCSV(): Promise<string> {
   const trips = await db.trips.toArray();
+  const spots = await db.spots.toArray();
   const data: any[] = [];
 
   for (const trip of trips) {
@@ -79,8 +80,24 @@ export async function exportToCSV(): Promise<string> {
     columns: CSV_HEADERS,
   });
 
-  // Add UTF-8 BOM for Excel compatibility
-  return '\ufeff' + csv;
+  // Export spots separately as a second CSV section
+  const spotData = spots.map(spot => ({
+    '포인트명': spot.name || '',
+    '위도': spot.lat,
+    '경도': spot.lng,
+    '수역': spot.waterType || '',
+    '메모': spot.notes || '',
+    '등록일': new Date(spot.createdAt).toLocaleDateString('ko-KR'),
+  }));
+
+  let result = '\ufeff' + csv;
+  
+  if (spotData.length > 0) {
+    result += '\n\n저장된 포인트\n';
+    result += Papa.unparse(spotData);
+  }
+
+  return result;
 }
 
 export async function importFromCSV(csvText: string): Promise<{ success: number; failed: number; preview: any[] }> {

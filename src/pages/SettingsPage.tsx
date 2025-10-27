@@ -13,11 +13,17 @@ export default function SettingsPage() {
     kma: '',
     khoa: '',
     openWeather: '',
+    vworld: '',
   });
   const [apiEnabled, setApiEnabled] = useState({
     kma: false,
     khoa: false,
     openWeather: false,
+    vworld: false,
+  });
+  const [mapSettings, setMapSettings] = useState({
+    khoaOverlay: true,
+    offlineCache: true,
   });
   const { toast } = useToast();
 
@@ -63,11 +69,18 @@ export default function SettingsPage() {
   };
 
   const saveApiKey = (key: keyof typeof apiKeys) => {
-    // TODO: Store in localStorage or settings table
     localStorage.setItem(`api_key_${key}`, apiKeys[key]);
     toast({
       title: 'API 키 저장 완료',
       description: `${key.toUpperCase()} API 키가 저장되었습니다`,
+    });
+  };
+
+  const saveMapSettings = () => {
+    localStorage.setItem('map_khoa_overlay', String(mapSettings.khoaOverlay));
+    localStorage.setItem('map_offline_cache', String(mapSettings.offlineCache));
+    toast({
+      title: '지도 설정 저장 완료',
     });
   };
 
@@ -185,6 +198,77 @@ export default function SettingsPage() {
           <p className="text-xs text-muted-foreground mt-4">
             API 키를 설정하면 자동으로 날씨와 물때 정보를 가져옵니다.
           </p>
+        </Card>
+
+        <Card className="p-4">
+          <h2 className="font-semibold mb-4">지도 설정</h2>
+          
+          <div className="space-y-4">
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <Label htmlFor="vworld-key">VWorld API 키</Label>
+                <Switch
+                  checked={apiEnabled.vworld}
+                  onCheckedChange={(checked) => setApiEnabled({ ...apiEnabled, vworld: checked })}
+                />
+              </div>
+              <div className="flex gap-2">
+                <Input
+                  id="vworld-key"
+                  type="password"
+                  value={apiKeys.vworld}
+                  onChange={(e) => setApiKeys({ ...apiKeys, vworld: e.target.value })}
+                  placeholder="VWorld API 키"
+                  disabled={!apiEnabled.vworld}
+                />
+                <Button onClick={() => saveApiKey('vworld')} disabled={!apiEnabled.vworld}>
+                  저장
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground mt-2">
+                VWorld 키를 입력하면 국내 최적화 지도와 위성 지도를 사용할 수 있습니다.
+                <br />
+                <a 
+                  href="https://www.vworld.kr/dev/v4dv_2ddataguide2_s001.do"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary underline"
+                >
+                  VWorld 키 발급 받기 →
+                </a>
+              </p>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <Label>KHOA 해양 정보 표시</Label>
+                <Switch
+                  checked={mapSettings.khoaOverlay}
+                  onCheckedChange={(checked) => setMapSettings({ ...mapSettings, khoaOverlay: checked })}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                해안선, 해양 정보 오버레이를 표시합니다
+              </p>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <Label>오프라인 타일 캐시</Label>
+                <Switch
+                  checked={mapSettings.offlineCache}
+                  onCheckedChange={(checked) => setMapSettings({ ...mapSettings, offlineCache: checked })}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                지도 타일을 캐시하여 오프라인에서도 사용 가능하게 합니다
+              </p>
+            </div>
+
+            <Button onClick={saveMapSettings} variant="outline" className="w-full">
+              지도 설정 저장
+            </Button>
+          </div>
         </Card>
 
         <Card className="p-4">
