@@ -19,6 +19,8 @@ import { seedDatabase } from "./db/seed";
 const queryClient = new QueryClient();
 
 const App = () => {
+  console.log('App rendering');
+  
   useEffect(() => {
     seedDatabase();
   }, []);
