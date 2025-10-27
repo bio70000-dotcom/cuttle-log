@@ -132,6 +132,8 @@ export default function MapPage() {
   const baseTileUrl = `https://api.vworld.kr/req/wmts/1.0.0/${vworldKey}/Base/{z}/{y}/{x}.png`;
   const baseTileAttribution = '© VWorld / 국토지리정보원';
   const satelliteTileUrl = `https://api.vworld.kr/req/wmts/1.0.0/${vworldKey}/Satellite/{z}/{y}/{x}.jpeg`;
+  const osmKrTileUrl = 'https://tile.openstreetmap.kr/{z}/{x}/{y}.png';
+  const osmKrAttribution = '© OpenStreetMap Korea';
 
   return (
     <div className="h-screen w-full pb-16">
@@ -215,6 +217,7 @@ export default function MapPage() {
                 attribution={baseTileAttribution}
                 url={baseTileUrl}
                 maxZoom={19}
+                errorTileUrl={osmKrTileUrl}
               />
             </LayersControl.BaseLayer>
             
@@ -222,6 +225,15 @@ export default function MapPage() {
               <TileLayer
                 attribution="© VWorld / 국토지리정보원"
                 url={satelliteTileUrl}
+                maxZoom={19}
+                errorTileUrl={osmKrTileUrl}
+              />
+            </LayersControl.BaseLayer>
+            
+            <LayersControl.BaseLayer name="OSM 한국">
+              <TileLayer
+                attribution={osmKrAttribution}
+                url={osmKrTileUrl}
                 maxZoom={19}
               />
             </LayersControl.BaseLayer>
