@@ -238,19 +238,17 @@ export default function MapPage() {
               />
             </LayersControl.BaseLayer>
 
-            {enableKHOA ? (
-              <LayersControl.Overlay name="해양 정보">
-                <WMSTileLayer
-                  url="https://www.khoa.go.kr/oceangrid/wms/map/map_wms.jsp"
-                  params={{
-                    layers: 'KHOA:coastline',
-                    format: 'image/png',
-                    transparent: true,
-                  }}
-                  attribution="© KHOA"
-                />
-              </LayersControl.Overlay>
-            ) : null}
+            <LayersControl.Overlay checked={enableKHOA} name="해양 정보">
+              <WMSTileLayer
+                url="https://www.khoa.go.kr/oceangrid/wms/map/map_wms.jsp"
+                params={{
+                  layers: 'KHOA:coastline',
+                  format: 'image/png',
+                  transparent: true,
+                }}
+                attribution="© KHOA"
+              />
+            </LayersControl.Overlay>
           </LayersControl>
 
           {position && (
