@@ -145,6 +145,8 @@ export async function loadMarineBundle(lat: number, lng: number): Promise<Marine
     // Collect all extreme times for flow calculation
     const allExtremeTimes = [...highs.map(h => h.time), ...lows.map(l => l.time)];
     todayFlowPct = flowPercentFromExtremes(allExtremeTimes, now);
+    console.log('🌊 Tide extremes:', allExtremeTimes);
+    console.log('📊 Today flow%:', todayFlowPct);
   }
 
   // Process SST with fallback
@@ -162,10 +164,13 @@ export async function loadMarineBundle(lat: number, lng: number): Promise<Marine
 
   if (moonPhases.status === 'fulfilled' && moonPhases.value.length > 0) {
     const phases = moonPhases.value;
+    console.log('🌙 Moon phases:', phases);
+    console.log('📍 Region:', region);
     
     // 7-day forecast with region-aware stage & baseline flow%
     stageForecast = phases.map((d, idx) => {
       const st = stageForRegion(d.phase01, region);
+      console.log(`Day ${idx} (${d.date}): phase=${d.phase01}, stage=${st.stage}, baselineFlow=${st.baselineFlow}`);
       
       // For today (idx 0), use live flow% if available
       const flowPct = (idx === 0 && todayFlowPct != null) ? todayFlowPct : st.baselineFlow ?? null;
@@ -176,10 +181,13 @@ export async function loadMarineBundle(lat: number, lng: number): Promise<Marine
     // Today's 물때
     if (stageForecast[0]) {
       mulTtae = stageForecast[0].stage;
+      console.log('✅ Today mulTtae:', mulTtae, 'flowPct:', stageForecast[0].flowPct);
     }
+  } else {
+    console.error('❌ Moon phases failed:', moonPhases);
   }
 
-  return {
+  const bundle = {
     stationName: station.name,
     region,
     tides: {
@@ -193,4 +201,7 @@ export async function loadMarineBundle(lat: number, lng: number): Promise<Marine
     stageForecast,
     updatedAt: new Date().toISOString(),
   };
+  
+  console.log('📦 MarineBundle:', bundle);
+  return bundle;
 }
