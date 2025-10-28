@@ -8,6 +8,7 @@ import 'leaflet-defaulticon-compatibility/dist/leaflet-defaulticon-compatibility
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { useLocationStore } from '@/stores/locationStore';
+import { useWeatherStore } from '@/stores/weatherStore';
 import { reverseGeocode } from '@/lib/geocoding';
 
 function LocationButton() {
@@ -15,6 +16,7 @@ function LocationButton() {
   const markerRef = useRef<L.Marker | null>(null);
   const [loading, setLoading] = useState(false);
   const { setCoords, setPlaceName } = useLocationStore();
+  const refreshWeather = useWeatherStore((state) => state.refresh);
 
   const handleLocate = () => {
     if (!navigator.geolocation) {
@@ -43,7 +45,7 @@ function LocationButton() {
         setLoading(false);
         toast.success("현재 위치를 찾았습니다.");
 
-        // Reverse geocode asynchronously
+        // Reverse geocode and fetch weather asynchronously
         try {
           const placeName = await reverseGeocode(latitude, longitude);
           if (placeName) {
@@ -52,6 +54,11 @@ function LocationButton() {
         } catch (error) {
           console.warn('Reverse geocoding failed:', error);
         }
+
+        // Fetch weather data
+        refreshWeather(latitude, longitude).catch((error) => {
+          console.warn('Weather fetch failed:', error);
+        });
       },
       (error) => {
         setLoading(false);

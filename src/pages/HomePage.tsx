@@ -7,6 +7,7 @@ import { PresetSlots } from '@/components/PresetSlots';
 import { LiveCatchButton } from '@/components/LiveCatchButton';
 import { RecentEvents } from '@/components/RecentEvents';
 import { MiniInsight } from '@/components/MiniInsight';
+import { WeatherCard } from '@/components/WeatherCard';
 import { useGeolocation } from '@/hooks/useGeolocation';
 import { useToast } from '@/hooks/use-toast';
 import { queueForSync } from '@/lib/sync';
@@ -150,6 +151,8 @@ export default function HomePage() {
       />
 
       <div className="pt-32 px-4 space-y-4">
+        <WeatherCard />
+
         <ConditionsSnapshot
           condition={currentCondition || null}
           onRefresh={handleRefreshConditions}
