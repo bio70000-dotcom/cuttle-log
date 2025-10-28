@@ -9,6 +9,13 @@ export default defineConfig(({ mode }) => ({
   server: {
     host: "::",
     port: 8080,
+    proxy: {
+      '/khoaapi': {
+        target: 'https://www.khoa.go.kr/api',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/khoaapi/, ''),
+      },
+    },
   },
   plugins: [
     react(),
