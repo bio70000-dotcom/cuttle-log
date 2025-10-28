@@ -21,8 +21,8 @@ export type MarineBundle = {
   stationName: string;
   region: RegionKey;
   tides: {
-    high?: TideExtreme;
-    low?: TideExtreme;
+    highs: TideExtreme[];
+    lows: TideExtreme[];
     range?: number;
     progressPct?: number;
   };
@@ -129,21 +129,21 @@ export async function loadMarineBundle(lat: number, lng: number): Promise<Marine
   ]);
 
   // Process tides
-  let high: TideExtreme | undefined;
-  let low: TideExtreme | undefined;
+  let highs: TideExtreme[] = [];
+  let lows: TideExtreme[] = [];
   let range: number | undefined;
   let todayFlowPct: number | undefined;
-  let allExtremeTimes: string[] = [];
 
   if (tidesResult.status === 'fulfilled') {
-    const { highs, lows } = tidesResult.value;
+    highs = tidesResult.value.highs;
+    lows = tidesResult.value.lows;
+    
+    // Calculate range from primary high/low
     const primary = pickPrimary(highs, lows);
-    high = primary.high;
-    low = primary.low;
     range = primary.rangeToday;
 
     // Collect all extreme times for flow calculation
-    allExtremeTimes = [...highs.map(h => h.time), ...lows.map(l => l.time)];
+    const allExtremeTimes = [...highs.map(h => h.time), ...lows.map(l => l.time)];
     todayFlowPct = flowPercentFromExtremes(allExtremeTimes, now);
   }
 
@@ -183,8 +183,8 @@ export async function loadMarineBundle(lat: number, lng: number): Promise<Marine
     stationName: station.name,
     region,
     tides: {
-      high,
-      low,
+      highs,
+      lows,
       range,
       progressPct: todayFlowPct,
     },

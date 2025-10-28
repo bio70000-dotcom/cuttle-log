@@ -31,10 +31,18 @@ export function TideCard() {
     }
   };
 
-  const formatTimeLevel = (item?: { time: string; level: number }) => {
-    if (!item) return '-';
+  const formatTimeLevel = (item: { time: string; level: number }, prevLevel?: number) => {
     const localTime = format(new Date(item.time), 'HH:mm');
-    return `${localTime} · ${item.level.toFixed(0)} cm`;
+    const level = item.level.toFixed(0);
+    
+    if (prevLevel !== undefined) {
+      const diff = item.level - prevLevel;
+      const arrow = diff > 0 ? '▲' : '▼';
+      const sign = diff > 0 ? '+' : '';
+      return `${localTime} (${level}) ${arrow}${sign}${diff.toFixed(0)}`;
+    }
+    
+    return `${localTime} (${level})`;
   };
 
   const currentRegionValue = regionMode === 'AUTO' ? 'AUTO' : regionManual || 'AUTO';
@@ -76,7 +84,20 @@ export function TideCard() {
           <p className="text-sm text-destructive">{error}</p>
         ) : data ? (
           <>
-            <div className="grid grid-cols-2 gap-2 text-sm">
+            {/* 물때, 물흐름 - 상단에 크게 표시 */}
+            <div className="flex items-center justify-between mb-4 p-3 bg-primary/5 rounded-lg">
+              <div className="flex-1">
+                <div className="text-xs text-muted-foreground mb-1">물때</div>
+                <div className="text-2xl font-bold">{data.mulTtae || '-'}</div>
+              </div>
+              <div className="flex-1 text-right">
+                <div className="text-xs text-muted-foreground mb-1">물흐름</div>
+                <div className="text-2xl font-bold">{data.tides.progressPct != null ? `${data.tides.progressPct}%` : '-'}</div>
+              </div>
+            </div>
+
+            {/* 관측소, 지역, 조차, 해수온 */}
+            <div className="grid grid-cols-2 gap-3 text-sm mb-4">
               <div>
                 <span className="text-muted-foreground">관측소:</span>
                 <span className="ml-2 font-medium">{data.stationName}</span>
@@ -85,18 +106,6 @@ export function TideCard() {
                 <span className="text-muted-foreground">지역:</span>
                 <span className="ml-2 font-medium">{REGION_NAMES[data.region]}</span>
               </div>
-              {data.tides.high && (
-                <div>
-                  <span className="text-muted-foreground">만조:</span>
-                  <span className="ml-2 font-medium">{formatTimeLevel(data.tides.high)}</span>
-                </div>
-              )}
-              {data.tides.low && (
-                <div>
-                  <span className="text-muted-foreground">간조:</span>
-                  <span className="ml-2 font-medium">{formatTimeLevel(data.tides.low)}</span>
-                </div>
-              )}
               {data.tides.range != null && (
                 <div>
                   <span className="text-muted-foreground">조차:</span>
@@ -109,19 +118,41 @@ export function TideCard() {
                   <span className="ml-2 font-medium">{data.sst.toFixed(1)} °C</span>
                 </div>
               )}
-              {data.tides.progressPct != null && (
-                <div>
-                  <span className="text-muted-foreground">물흐름:</span>
-                  <span className="ml-2 font-medium">{data.tides.progressPct} %</span>
-                </div>
-              )}
-              {data.mulTtae && (
-                <div>
-                  <span className="text-muted-foreground">물때:</span>
-                  <span className="ml-2 font-medium">{data.mulTtae}</span>
-                </div>
-              )}
             </div>
+
+            {/* 간조 목록 */}
+            {data.tides.lows.length > 0 && (
+              <div className="mb-3">
+                <div className="text-xs text-muted-foreground mb-2">간조</div>
+                <div className="space-y-1">
+                  {data.tides.lows.map((low, idx) => {
+                    const prevHigh = data.tides.highs.find(h => new Date(h.time) < new Date(low.time));
+                    return (
+                      <div key={low.time} className="text-sm font-mono bg-blue-500/10 px-2 py-1 rounded">
+                        {formatTimeLevel(low, prevHigh?.level)}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* 만조 목록 */}
+            {data.tides.highs.length > 0 && (
+              <div className="mb-3">
+                <div className="text-xs text-muted-foreground mb-2">만조</div>
+                <div className="space-y-1">
+                  {data.tides.highs.map((high, idx) => {
+                    const prevLow = [...data.tides.lows].reverse().find(l => new Date(l.time) < new Date(high.time));
+                    return (
+                      <div key={high.time} className="text-sm font-mono bg-red-500/10 px-2 py-1 rounded">
+                        {formatTimeLevel(high, prevLow?.level)}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {data.stageForecast && data.stageForecast.length > 0 && (
               <div className="pt-2 border-t">
