@@ -122,18 +122,29 @@ export async function loadMarineBundle(lat: number, lng: number): Promise<Marine
     low = primary.low;
     range = primary.rangeToday;
 
-    // Calculate flow percent
-    if (high && low) {
-      const now = Date.now();
-      // Determine which extreme came first
-      const prevTime = high.time < low.time ? high.time : low.time;
-      const nextTime = high.time < low.time ? low.time : high.time;
-      
-      // If current time is between them
-      if (now >= new Date(prevTime).getTime() && now <= new Date(nextTime).getTime()) {
-        flowLinear = linearFlowPercent(prevTime, nextTime, now);
-        flowCos = cosineFlowPercent(prevTime, nextTime, now);
+    // Calculate flow percent - find prev and next extremes around current time
+    const now = Date.now();
+    const allExtremes = [...highs, ...lows].sort((a, b) => 
+      new Date(a.time).getTime() - new Date(b.time).getTime()
+    );
+    
+    let prev: TideExtreme | undefined;
+    let next: TideExtreme | undefined;
+    
+    for (let i = 0; i < allExtremes.length; i++) {
+      const t = new Date(allExtremes[i].time).getTime();
+      if (t <= now) {
+        prev = allExtremes[i];
       }
+      if (t > now && !next) {
+        next = allExtremes[i];
+        break;
+      }
+    }
+    
+    if (prev && next) {
+      flowLinear = linearFlowPercent(prev.time, next.time, now);
+      flowCos = cosineFlowPercent(prev.time, next.time, now);
     }
   }
 
