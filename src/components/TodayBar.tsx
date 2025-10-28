@@ -5,6 +5,9 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { MapPin, RefreshCw } from 'lucide-react';
+import { useLocationStore } from '@/stores/locationStore';
+import { reverseGeocode } from '@/lib/geocoding';
+import { toast } from 'sonner';
 
 interface TodayBarProps {
   currentTrip: Trip | null;
@@ -16,7 +19,9 @@ interface TodayBarProps {
 export function TodayBar({ currentTrip, onStartTrip, onEndTrip, onSelectSpot }: TodayBarProps) {
   const isOnline = useOnlineStatus();
   const [syncStatus, setSyncStatus] = useState<'오프라인 저장 중' | '동기화 대기' | '동기화 완료'>('동기화 완료');
+  const [isRefreshing, setIsRefreshing] = useState(false);
   
+  const { lat, lng, placeName, setPlaceName } = useLocationStore();
   const outboxCount = useLiveQuery(() => db.outbox.count());
 
   useEffect(() => {
@@ -38,6 +43,26 @@ export function TodayBar({ currentTrip, onStartTrip, onEndTrip, onSelectSpot }: 
   const formatTime = (date?: Date) => {
     if (!date) return '';
     return new Date(date).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+  };
+
+  const handleRefreshPlaceName = async () => {
+    if (!lat || !lng) return;
+    
+    setIsRefreshing(true);
+    try {
+      const newPlaceName = await reverseGeocode(lat, lng);
+      if (newPlaceName) {
+        setPlaceName(newPlaceName);
+        toast.success('위치 정보를 갱신했습니다.');
+      } else {
+        toast.error('위치 정보를 가져올 수 없습니다.');
+      }
+    } catch (error) {
+      console.error('Refresh place name error:', error);
+      toast.error('위치 정보 갱신에 실패했습니다.');
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   return (
@@ -64,18 +89,36 @@ export function TodayBar({ currentTrip, onStartTrip, onEndTrip, onSelectSpot }: 
           variant="outline"
           size="sm"
           onClick={onSelectSpot}
-          className="flex-1"
+          className="flex-1 justify-start text-left"
         >
-          <MapPin className="w-4 h-4 mr-2" />
-          {currentTrip?.spotName || '위치 선택'}
+          <MapPin className="w-4 h-4 mr-2 flex-shrink-0" />
+          <span className="truncate">
+            {lat && lng ? (
+              <>위치: {placeName || '지명 불명'} · {lat.toFixed(5)}, {lng.toFixed(5)}</>
+            ) : (
+              <span className="text-muted-foreground text-xs">지도에서 '내 위치'를 먼저 눌러주세요.</span>
+            )}
+          </span>
         </Button>
         
+        {lat && lng && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleRefreshPlaceName}
+            disabled={isRefreshing}
+            className="flex-shrink-0"
+          >
+            <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+          </Button>
+        )}
+        
         {!currentTrip || currentTrip.dateEnd ? (
-          <Button size="sm" onClick={onStartTrip}>
+          <Button size="sm" onClick={onStartTrip} className="flex-shrink-0">
             출조 시작
           </Button>
         ) : (
-          <Button size="sm" variant="destructive" onClick={onEndTrip}>
+          <Button size="sm" variant="destructive" onClick={onEndTrip} className="flex-shrink-0">
             종료
           </Button>
         )}
