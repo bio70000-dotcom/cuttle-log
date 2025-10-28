@@ -55,3 +55,24 @@ export function moonToMulTtae(moonPhase01: number | undefined, mode: MulTtaeMode
   }
   return { label: `${idx}물`, idx };
 }
+
+// Flow percent from list of extreme times (ISO strings)
+export function flowPercentFromExtremes(extISO: string[], now = Date.now()): number | undefined {
+  if (extISO.length < 2) return undefined;
+  const pts = extISO.map(t => new Date(t).getTime()).sort((a, b) => a - b);
+  
+  // Find bracket around now
+  let prev = pts[0], next = pts[pts.length - 1];
+  for (let i = 0; i < pts.length - 1; i++) {
+    if (now >= pts[i] && now < pts[i + 1]) {
+      prev = pts[i];
+      next = pts[i + 1];
+      break;
+    }
+  }
+  
+  const frac = Math.max(0, Math.min(1, (now - prev) / (next - prev)));
+  // Cosine easing: 0..1..0 (max at mid-interval)
+  const eased = Math.sin(Math.PI * frac);
+  return Math.round(eased * 100);
+}

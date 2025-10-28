@@ -1,10 +1,18 @@
 import { findNearestStation, fetchTideExtremes, pickPrimary } from '@/lib/tideExtreme';
-import { pickNearestTimeRow, linearFlowPercent, cosineFlowPercent, moonToMulTtae } from '@/lib/marineExtras';
+import { pickNearestTimeRow, linearFlowPercent, cosineFlowPercent, moonToMulTtae, flowPercentFromExtremes } from '@/lib/marineExtras';
+import { moonPhaseToMulTtae } from '@/lib/mulTtae';
+import { TIDE_STAGE_FLOW_BASELINE } from '@/config/tideStageMap';
 import { KHOA_API_KEY } from '@/lib/config';
 
 type TideExtreme = {
   time: string;
   level: number;
+};
+
+export type StageDay = {
+  date: string;
+  stage: string;
+  flowPct: number | null;
 };
 
 export type MarineBundle = {
@@ -18,6 +26,7 @@ export type MarineBundle = {
   };
   sst?: number; // sea surface temperature in °C
   mulTtae?: string; // 물때 label
+  stageForecast?: StageDay[]; // 7-day forecast
   updatedAt: string;
 };
 
@@ -83,37 +92,40 @@ async function fetchOpenMeteoSST(lat: number, lng: number): Promise<number | und
   }
 }
 
-async function fetchMoonPhase(lat: number, lng: number): Promise<number | undefined> {
+async function fetchDailyMoonPhases(lat: number, lng: number, days = 7): Promise<{ date: string; phase01: number }[]> {
   try {
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&daily=moon_phase&timezone=auto`;
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&timezone=auto&daily=moon_phase&forecast_days=${days}`;
     const res = await fetch(url);
-    if (!res.ok) return undefined;
+    if (!res.ok) return [];
 
     const json = await res.json();
-    return json?.daily?.moon_phase?.[0];
+    const times: string[] = json?.daily?.time ?? [];
+    const phases: number[] = json?.daily?.moon_phase ?? [];
+    return times.map((t, i) => ({ date: t, phase01: phases[i] }));
   } catch (e) {
     console.error('❌ Moon phase fetch error:', e);
-    return undefined;
+    return [];
   }
 }
 
 export async function loadMarineBundle(lat: number, lng: number): Promise<MarineBundle> {
   const station = findNearestStation(lat, lng);
   const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const now = Date.now();
 
   // Fetch all data in parallel
-  const [tidesResult, sstKHOA, moonPhase] = await Promise.allSettled([
+  const [tidesResult, sstKHOA, moonPhases] = await Promise.allSettled([
     fetchTideExtremes(station.code, dateStr),
     fetchKHOASST(station.code, dateStr),
-    fetchMoonPhase(lat, lng),
+    fetchDailyMoonPhases(lat, lng, 7),
   ]);
 
   // Process tides
   let high: TideExtreme | undefined;
   let low: TideExtreme | undefined;
   let range: number | undefined;
-  let flowLinear: number | undefined;
-  let flowCos: number | undefined;
+  let todayFlowPct: number | undefined;
+  let allExtremeTimes: string[] = [];
 
   if (tidesResult.status === 'fulfilled') {
     const { highs, lows } = tidesResult.value;
@@ -122,30 +134,9 @@ export async function loadMarineBundle(lat: number, lng: number): Promise<Marine
     low = primary.low;
     range = primary.rangeToday;
 
-    // Calculate flow percent - find prev and next extremes around current time
-    const now = Date.now();
-    const allExtremes = [...highs, ...lows].sort((a, b) => 
-      new Date(a.time).getTime() - new Date(b.time).getTime()
-    );
-    
-    let prev: TideExtreme | undefined;
-    let next: TideExtreme | undefined;
-    
-    for (let i = 0; i < allExtremes.length; i++) {
-      const t = new Date(allExtremes[i].time).getTime();
-      if (t <= now) {
-        prev = allExtremes[i];
-      }
-      if (t > now && !next) {
-        next = allExtremes[i];
-        break;
-      }
-    }
-    
-    if (prev && next) {
-      flowLinear = linearFlowPercent(prev.time, next.time, now);
-      flowCos = cosineFlowPercent(prev.time, next.time, now);
-    }
+    // Collect all extreme times for flow calculation
+    allExtremeTimes = [...highs.map(h => h.time), ...lows.map(l => l.time)];
+    todayFlowPct = flowPercentFromExtremes(allExtremeTimes, now);
   }
 
   // Process SST with fallback
@@ -157,11 +148,35 @@ export async function loadMarineBundle(lat: number, lng: number): Promise<Marine
     sstFinal = await fetchOpenMeteoSST(lat, lng);
   }
 
-  // Process 물때 (mul-ttae)
+  // Process 물때 (mul-ttae) and 7-day forecast
   let mulTtae: string | undefined;
-  if (moonPhase.status === 'fulfilled' && moonPhase.value != null) {
-    const mt = moonToMulTtae(moonPhase.value, 'A');
-    mulTtae = mt.label;
+  let stageForecast: StageDay[] = [];
+
+  if (moonPhases.status === 'fulfilled' && moonPhases.value.length > 0) {
+    const phases = moonPhases.value;
+    
+    // Today's 물때
+    if (phases[0]) {
+      const mt = moonPhaseToMulTtae(phases[0].phase01);
+      mulTtae = mt.label;
+    }
+
+    // 7-day forecast with baseline flow%
+    stageForecast = phases.map((d, idx) => {
+      const mt = moonPhaseToMulTtae(d.phase01);
+      let baseline: number | null = null;
+      
+      if (mt.label === '조금' || mt.label === '무시') {
+        baseline = TIDE_STAGE_FLOW_BASELINE[mt.label];
+      } else if (mt.index) {
+        baseline = TIDE_STAGE_FLOW_BASELINE[`${mt.index}물` as keyof typeof TIDE_STAGE_FLOW_BASELINE] ?? null;
+      }
+      
+      // For today (idx 0), use live flow% if available
+      const flowPct = (idx === 0 && todayFlowPct != null) ? todayFlowPct : baseline;
+      
+      return { date: d.date, stage: mt.label, flowPct };
+    });
   }
 
   return {
@@ -170,11 +185,11 @@ export async function loadMarineBundle(lat: number, lng: number): Promise<Marine
       high,
       low,
       range,
-      progressPct: flowLinear,
-      progressCosPct: flowCos,
+      progressPct: todayFlowPct,
     },
     sst: sstFinal,
     mulTtae,
+    stageForecast,
     updatedAt: new Date().toISOString(),
   };
 }

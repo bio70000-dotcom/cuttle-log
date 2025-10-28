@@ -34,7 +34,7 @@ export function TideCard() {
           <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
         </Button>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-3">
         {isLoading && <p className="text-sm text-muted-foreground">불러오는 중…</p>}
         
         {!lat || !lng ? (
@@ -42,47 +42,82 @@ export function TideCard() {
         ) : error ? (
           <p className="text-sm text-destructive">{error}</p>
         ) : data ? (
-          <div className="space-y-2 text-sm">
-            <div>
-              <span className="text-muted-foreground">관측소:</span>{' '}
-              <span className="font-medium">{data.stationName}</span>
+          <>
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              <div>
+                <span className="text-muted-foreground">관측소:</span>
+                <span className="ml-2 font-medium">{data.stationName}</span>
+              </div>
+              {data.tides.high && (
+                <div>
+                  <span className="text-muted-foreground">만조:</span>
+                  <span className="ml-2 font-medium">{formatTimeLevel(data.tides.high)}</span>
+                </div>
+              )}
+              {data.tides.low && (
+                <div>
+                  <span className="text-muted-foreground">간조:</span>
+                  <span className="ml-2 font-medium">{formatTimeLevel(data.tides.low)}</span>
+                </div>
+              )}
+              {data.tides.range != null && (
+                <div>
+                  <span className="text-muted-foreground">조차:</span>
+                  <span className="ml-2 font-medium">{data.tides.range.toFixed(0)} cm</span>
+                </div>
+              )}
+              {data.sst != null && (
+                <div>
+                  <span className="text-muted-foreground">해수온:</span>
+                  <span className="ml-2 font-medium">{data.sst.toFixed(1)} °C</span>
+                </div>
+              )}
+              {data.tides.progressPct != null && (
+                <div>
+                  <span className="text-muted-foreground">물흐름:</span>
+                  <span className="ml-2 font-medium">{data.tides.progressPct} %</span>
+                </div>
+              )}
+              {data.mulTtae && (
+                <div>
+                  <span className="text-muted-foreground">물때:</span>
+                  <span className="ml-2 font-medium">{data.mulTtae}</span>
+                </div>
+              )}
             </div>
-            <div>
-              <span className="text-muted-foreground">만조:</span>{' '}
-              <span className="font-medium">{formatTimeLevel(data.tides.high)}</span>
-            </div>
-            <div>
-              <span className="text-muted-foreground">간조:</span>{' '}
-              <span className="font-medium">{formatTimeLevel(data.tides.low)}</span>
-            </div>
-            <div>
-              <span className="text-muted-foreground">조차:</span>{' '}
-              <span className="font-medium">
-                {data.tides.range != null ? `${data.tides.range.toFixed(0)} cm` : '-'}
-              </span>
-            </div>
-            <div>
-              <span className="text-muted-foreground">해수온:</span>{' '}
-              <span className="font-medium">
-                {data.sst != null ? `${data.sst.toFixed(1)} °C` : '-'}
-              </span>
-            </div>
-            <div>
-              <span className="text-muted-foreground">물흐름:</span>{' '}
-              <span className="font-medium">
-                {data.tides.progressPct != null ? `${data.tides.progressPct} %` : '-'}
-              </span>
-            </div>
-            <div>
-              <span className="text-muted-foreground">물때:</span>{' '}
-              <span className="font-medium">{data.mulTtae ?? '-'}</span>
-            </div>
-            {data.updatedAt && (
-              <div className="text-xs text-muted-foreground">
-                업데이트: {format(new Date(data.updatedAt), 'HH:mm')}
+
+            {data.stageForecast && data.stageForecast.length > 0 && (
+              <div className="pt-2 border-t">
+                <div className="text-xs text-muted-foreground mb-2">물때/물흐름 (7일)</div>
+                <div className="flex gap-2 overflow-x-auto pb-2">
+                  {data.stageForecast.map((day, idx) => {
+                    const date = new Date(day.date);
+                    const isToday = idx === 0;
+                    return (
+                      <div
+                        key={day.date}
+                        className={`flex-shrink-0 rounded-lg border px-3 py-2 min-w-[80px] ${
+                          isToday ? 'bg-primary/10 border-primary/30' : 'bg-card'
+                        }`}
+                      >
+                        <div className="text-xs font-medium">
+                          {isToday ? '오늘' : `${date.getMonth() + 1}/${date.getDate()}`}
+                        </div>
+                        <div className="text-sm font-semibold mt-1">{day.stage}</div>
+                        <div className="text-xs text-muted-foreground mt-0.5">
+                          {day.flowPct != null ? `${day.flowPct}%` : '-'}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             )}
-          </div>
+
+            <div className="text-xs text-muted-foreground">
+              업데이트: {format(new Date(data.updatedAt), 'HH:mm')}
+            </div>
+          </>
         ) : null}
       </CardContent>
     </Card>
