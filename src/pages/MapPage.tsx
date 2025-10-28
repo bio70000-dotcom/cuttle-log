@@ -3,8 +3,8 @@ import { useRef, useState, useEffect } from 'react';
 import { Navigation, PlayCircle, StopCircle, Target } from 'lucide-react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import 'leaflet-defaulticon-compatibility/dist/leaflet-defaulticon-compatibility.css';
 import 'leaflet-defaulticon-compatibility';
+import 'leaflet-defaulticon-compatibility/dist/leaflet-defaulticon-compatibility.css';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { db } from '@/db/schema';
@@ -17,55 +17,69 @@ function MapControls() {
   const map = useMap();
   const markerRef = useRef<L.Marker | null>(null);
   const hitMarkersRef = useRef<L.Marker[]>([]);
+  const polylineRef = useRef<L.Polyline | null>(null);
   const [loading, setLoading] = useState(false);
   const [showConditionsForm, setShowConditionsForm] = useState(false);
   const { startTracking, stopTracking } = useTripTracking();
 
   // Get current trip
   const currentTrip = useLiveQuery(async () => {
-    const trips = await db.trips.where('dateEnd').equals(undefined as any).toArray();
+    const trips = await db.trips.where('dateEnd').equals(null).toArray();
     return trips.length > 0 ? trips[0] : null;
   });
 
   // Load existing trackpoints and catches when trip is active
   useEffect(() => {
-    if (!currentTrip) return;
+    if (!currentTrip?.id) return;
 
     const loadTripData = async () => {
-      // Load trackpoints
-      const trackPoints = await db.trackPoints.where('tripId').equals(currentTrip.id!).toArray();
-      if (trackPoints.length > 0) {
-        const polyline = L.polyline(
-          trackPoints.map(tp => [tp.lat, tp.lng] as [number, number]),
-          { color: '#1976d2', weight: 4, opacity: 0.8 }
-        ).addTo(map);
-      }
-
-      // Load catch markers
-      const catches = await db.catchEvents.where('tripId').equals(currentTrip.id!).toArray();
-      catches.forEach(catchEvent => {
-        if (catchEvent.lat && catchEvent.lng) {
-          const icon = L.divIcon({
-            className: 'custom-hit-marker',
-            html: '<div style="background: #f44336; color: white; border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; font-weight: bold; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);">H</div>',
-            iconSize: [32, 32],
-          });
-
-          const marker = L.marker([catchEvent.lat, catchEvent.lng], { icon })
-            .addTo(map)
-            .bindPopup(`
-              <strong>히트!</strong><br/>
-              시간: ${new Date(catchEvent.at).toLocaleTimeString('ko-KR')}<br/>
-              위치: ${catchEvent.lat.toFixed(5)}, ${catchEvent.lng.toFixed(5)}
-            `);
-          
-          hitMarkersRef.current.push(marker);
+      try {
+        // Load trackpoints
+        const trackPoints = await db.trackPoints.where('tripId').equals(currentTrip.id).toArray();
+        if (trackPoints.length > 0) {
+          if (polylineRef.current) {
+            polylineRef.current.remove();
+          }
+          const polyline = L.polyline(
+            trackPoints.map(tp => [tp.lat, tp.lng] as [number, number]),
+            { color: '#1976d2', weight: 4, opacity: 0.8 }
+          ).addTo(map);
+          polylineRef.current = polyline;
         }
-      });
+
+        // Load catch markers
+        const catches = await db.catchEvents.where('tripId').equals(currentTrip.id).toArray();
+        
+        // Clear existing markers
+        hitMarkersRef.current.forEach(marker => marker.remove());
+        hitMarkersRef.current = [];
+        
+        catches.forEach(catchEvent => {
+          if (catchEvent.lat && catchEvent.lng) {
+            const icon = L.divIcon({
+              className: 'custom-hit-marker',
+              html: '<div style="background: #f44336; color: white; border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; font-weight: bold; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);">H</div>',
+              iconSize: [32, 32],
+            });
+
+            const marker = L.marker([catchEvent.lat, catchEvent.lng], { icon })
+              .addTo(map)
+              .bindPopup(`
+                <strong>히트!</strong><br/>
+                시간: ${new Date(catchEvent.at).toLocaleTimeString('ko-KR')}<br/>
+                위치: ${catchEvent.lat.toFixed(5)}, ${catchEvent.lng.toFixed(5)}
+              `);
+            
+            hitMarkersRef.current.push(marker);
+          }
+        });
+      } catch (error) {
+        console.error('Error loading trip data:', error);
+      }
     };
 
     loadTripData();
-  }, [currentTrip, map]);
+  }, [currentTrip?.id, map]);
 
   const handleLocate = () => {
     if (!navigator.geolocation) {
@@ -105,31 +119,48 @@ function MapControls() {
   };
 
   const handleStartTrip = async () => {
-    const tripId = await db.trips.add({
-      dateStart: new Date(),
-    });
+    try {
+      const tripId = await db.trips.add({
+        dateStart: new Date(),
+        dateEnd: null,
+      });
 
-    await queueForSync('trip', { id: tripId, dateStart: new Date() });
-    await startTracking(map, tripId as number);
-    
-    toast.success('출조를 시작했습니다');
+      await queueForSync('trip', { id: tripId, dateStart: new Date() });
+      await startTracking(map, tripId as number);
+      
+      toast.success('출조를 시작했습니다');
+    } catch (error) {
+      console.error('Error starting trip:', error);
+      toast.error('출조 시작 중 오류가 발생했습니다');
+    }
   };
 
   const handleEndTrip = async () => {
     if (!currentTrip?.id) return;
 
-    await db.trips.update(currentTrip.id, {
-      dateEnd: new Date(),
-    });
+    try {
+      await db.trips.update(currentTrip.id, {
+        dateEnd: new Date(),
+      });
 
-    await queueForSync('trip', { id: currentTrip.id, dateEnd: new Date() });
-    stopTracking();
-    
-    // Clear hit markers
-    hitMarkersRef.current.forEach(marker => marker.remove());
-    hitMarkersRef.current = [];
+      await queueForSync('trip', { id: currentTrip.id, dateEnd: new Date() });
+      stopTracking();
+      
+      // Clear hit markers
+      hitMarkersRef.current.forEach(marker => marker.remove());
+      hitMarkersRef.current = [];
+      
+      // Clear polyline
+      if (polylineRef.current) {
+        polylineRef.current.remove();
+        polylineRef.current = null;
+      }
 
-    toast.success('출조를 종료했습니다');
+      toast.success('출조를 종료했습니다');
+    } catch (error) {
+      console.error('Error ending trip:', error);
+      toast.error('출조 종료 중 오류가 발생했습니다');
+    }
   };
 
   const handleAddHit = () => {
@@ -140,43 +171,48 @@ function MapControls() {
 
     navigator.geolocation.getCurrentPosition(
       async (position) => {
-        const { latitude, longitude } = position.coords;
+        try {
+          const { latitude, longitude } = position.coords;
 
-        const catchId = await db.catchEvents.add({
-          tripId: currentTrip.id!,
-          at: new Date(),
-          lat: latitude,
-          lng: longitude,
-          rigSlot: 'A',
-          egiSlot: 'A',
-        });
+          const catchId = await db.catchEvents.add({
+            tripId: currentTrip.id!,
+            at: new Date(),
+            lat: latitude,
+            lng: longitude,
+            rigSlot: 'A',
+            egiSlot: 'A',
+          });
 
-        await queueForSync('catch', {
-          id: catchId,
-          tripId: currentTrip.id,
-          at: new Date(),
-          lat: latitude,
-          lng: longitude,
-        });
+          await queueForSync('catch', {
+            id: catchId,
+            tripId: currentTrip.id,
+            at: new Date(),
+            lat: latitude,
+            lng: longitude,
+          });
 
-        // Add red marker
-        const icon = L.divIcon({
-          className: 'custom-hit-marker',
-          html: '<div style="background: #f44336; color: white; border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; font-weight: bold; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);">H</div>',
-          iconSize: [32, 32],
-        });
+          // Add red marker
+          const icon = L.divIcon({
+            className: 'custom-hit-marker',
+            html: '<div style="background: #f44336; color: white; border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; font-weight: bold; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);">H</div>',
+            iconSize: [32, 32],
+          });
 
-        const marker = L.marker([latitude, longitude], { icon })
-          .addTo(map)
-          .bindPopup(`
-            <strong>히트!</strong><br/>
-            시간: ${new Date().toLocaleTimeString('ko-KR')}<br/>
-            위치: ${latitude.toFixed(5)}, ${longitude.toFixed(5)}
-          `)
-          .openPopup();
+          const marker = L.marker([latitude, longitude], { icon })
+            .addTo(map)
+            .bindPopup(`
+              <strong>히트!</strong><br/>
+              시간: ${new Date().toLocaleTimeString('ko-KR')}<br/>
+              위치: ${latitude.toFixed(5)}, ${longitude.toFixed(5)}
+            `)
+            .openPopup();
 
-        hitMarkersRef.current.push(marker);
-        toast.success('갑오징어 기록을 추가했습니다!');
+          hitMarkersRef.current.push(marker);
+          toast.success('갑오징어 기록을 추가했습니다!');
+        } catch (error) {
+          console.error('Error adding hit:', error);
+          toast.error('기록 추가 중 오류가 발생했습니다');
+        }
       },
       (error) => {
         toast.error('위치 정보를 가져올 수 없습니다');
@@ -196,15 +232,21 @@ function MapControls() {
       return;
     }
 
-    await db.conditions.add({
-      tripId: currentTrip.id,
-      at: new Date(),
-      waterTemp: data.waterTemp,
-      currentStrength: data.currentStrength,
-      waterColor: data.waterColor,
-    });
+    try {
+      await db.conditions.add({
+        tripId: currentTrip.id,
+        at: new Date(),
+        waterTemp: data.waterTemp,
+        currentStrength: data.currentStrength,
+        waterColor: data.waterColor,
+      });
 
-    toast.success('조건을 저장했습니다');
+      toast.success('조건을 저장했습니다');
+      setShowConditionsForm(false);
+    } catch (error) {
+      console.error('Error saving conditions:', error);
+      toast.error('조건 저장 중 오류가 발생했습니다');
+    }
   };
 
   return (
@@ -253,10 +295,11 @@ function MapControls() {
 
 export default function MapPage() {
   return (
-    <div style={{ position: 'fixed', inset: 0, paddingBottom: '64px' }}>
+    <div className="fixed inset-0 pb-16">
       <MapContainer 
         center={[36.5, 127.8]} 
         zoom={7} 
+        className="h-full w-full"
         style={{ height: '100%', width: '100%' }}
       >
         <TileLayer

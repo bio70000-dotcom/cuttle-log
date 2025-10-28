@@ -102,4 +102,9 @@ All colors MUST be HSL.
   body {
     @apply bg-background text-foreground;
   }
+
+  .leaflet-container {
+    width: 100%;
+    height: 100%;
+  }
 }
