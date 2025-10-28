@@ -1,17 +1,33 @@
 import { useLocationStore } from '@/stores/locationStore';
 import { useMarineBundleStore } from '@/stores/marineBundleStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { RefreshCw } from 'lucide-react';
 import { format } from 'date-fns';
+import { REGION_NAMES, type RegionKey } from '@/config/regions';
 
 export function TideCard() {
   const { lat, lng } = useLocationStore();
   const { data, isLoading, error, refresh } = useMarineBundleStore();
+  const { regionMode, regionManual, setAuto, setManual } = useSettingsStore();
 
   const handleRefresh = () => {
     if (lat && lng) {
       refresh(lat, lng);
+    }
+  };
+
+  const handleRegionChange = (value: string) => {
+    if (value === 'AUTO') {
+      setAuto();
+    } else {
+      setManual(value as RegionKey);
+    }
+    // Refresh data with new region
+    if (lat && lng) {
+      setTimeout(() => refresh(lat, lng), 100);
     }
   };
 
@@ -21,18 +37,35 @@ export function TideCard() {
     return `${localTime} · ${item.level.toFixed(0)} cm`;
   };
 
+  const currentRegionValue = regionMode === 'AUTO' ? 'AUTO' : regionManual || 'AUTO';
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <CardTitle className="text-lg font-semibold">해양 정보</CardTitle>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={handleRefresh}
-          disabled={isLoading || !lat || !lng}
-        >
-          <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
-        </Button>
+        <div className="flex items-center gap-2">
+          <Select value={currentRegionValue} onValueChange={handleRegionChange}>
+            <SelectTrigger className="w-[120px] h-8 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="AUTO">자동(GPS)</SelectItem>
+              <SelectItem value="WEST">서해</SelectItem>
+              <SelectItem value="SOUTH">남해</SelectItem>
+              <SelectItem value="EAST">동해</SelectItem>
+              <SelectItem value="JEJU">제주</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleRefresh}
+            disabled={isLoading || !lat || !lng}
+            className="h-8 w-8"
+          >
+            <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+          </Button>
+        </div>
       </CardHeader>
       <CardContent className="space-y-3">
         {isLoading && <p className="text-sm text-muted-foreground">불러오는 중…</p>}
@@ -47,6 +80,10 @@ export function TideCard() {
               <div>
                 <span className="text-muted-foreground">관측소:</span>
                 <span className="ml-2 font-medium">{data.stationName}</span>
+              </div>
+              <div>
+                <span className="text-muted-foreground">지역:</span>
+                <span className="ml-2 font-medium">{REGION_NAMES[data.region]}</span>
               </div>
               {data.tides.high && (
                 <div>

@@ -1,7 +1,8 @@
 import { findNearestStation, fetchTideExtremes, pickPrimary } from '@/lib/tideExtreme';
-import { pickNearestTimeRow, linearFlowPercent, cosineFlowPercent, moonToMulTtae, flowPercentFromExtremes } from '@/lib/marineExtras';
-import { moonPhaseToMulTtae } from '@/lib/mulTtae';
-import { TIDE_STAGE_FLOW_BASELINE } from '@/config/tideStageMap';
+import { pickNearestTimeRow, flowPercentFromExtremes } from '@/lib/marineExtras';
+import { stageForRegion } from '@/lib/mulTtae';
+import { resolveRegion, type RegionKey } from '@/config/regions';
+import { useSettingsStore } from '@/stores/settingsStore';
 import { KHOA_API_KEY } from '@/lib/config';
 
 type TideExtreme = {
@@ -13,16 +14,17 @@ export type StageDay = {
   date: string;
   stage: string;
   flowPct: number | null;
+  region: RegionKey;
 };
 
 export type MarineBundle = {
   stationName: string;
+  region: RegionKey;
   tides: {
     high?: TideExtreme;
     low?: TideExtreme;
     range?: number;
     progressPct?: number;
-    progressCosPct?: number;
   };
   sst?: number; // sea surface temperature in °C
   mulTtae?: string; // 물때 label
@@ -113,6 +115,12 @@ export async function loadMarineBundle(lat: number, lng: number): Promise<Marine
   const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
   const now = Date.now();
 
+  // Resolve region from GPS or manual override
+  const settings = useSettingsStore.getState();
+  const region: RegionKey = settings.regionMode === 'AUTO'
+    ? resolveRegion(lat, lng)
+    : (settings.regionManual || resolveRegion(lat, lng));
+
   // Fetch all data in parallel
   const [tidesResult, sstKHOA, moonPhases] = await Promise.allSettled([
     fetchTideExtremes(station.code, dateStr),
@@ -148,39 +156,32 @@ export async function loadMarineBundle(lat: number, lng: number): Promise<Marine
     sstFinal = await fetchOpenMeteoSST(lat, lng);
   }
 
-  // Process 물때 (mul-ttae) and 7-day forecast
+  // Process 물때 (mul-ttae) and 7-day forecast using region profile
   let mulTtae: string | undefined;
   let stageForecast: StageDay[] = [];
 
   if (moonPhases.status === 'fulfilled' && moonPhases.value.length > 0) {
     const phases = moonPhases.value;
     
-    // Today's 물때
-    if (phases[0]) {
-      const mt = moonPhaseToMulTtae(phases[0].phase01);
-      mulTtae = mt.label;
-    }
-
-    // 7-day forecast with baseline flow%
+    // 7-day forecast with region-aware stage & baseline flow%
     stageForecast = phases.map((d, idx) => {
-      const mt = moonPhaseToMulTtae(d.phase01);
-      let baseline: number | null = null;
-      
-      if (mt.label === '조금' || mt.label === '무시') {
-        baseline = TIDE_STAGE_FLOW_BASELINE[mt.label];
-      } else if (mt.index) {
-        baseline = TIDE_STAGE_FLOW_BASELINE[`${mt.index}물` as keyof typeof TIDE_STAGE_FLOW_BASELINE] ?? null;
-      }
+      const st = stageForRegion(d.phase01, region);
       
       // For today (idx 0), use live flow% if available
-      const flowPct = (idx === 0 && todayFlowPct != null) ? todayFlowPct : baseline;
+      const flowPct = (idx === 0 && todayFlowPct != null) ? todayFlowPct : st.baselineFlow ?? null;
       
-      return { date: d.date, stage: mt.label, flowPct };
+      return { date: d.date, stage: st.stage, flowPct, region };
     });
+    
+    // Today's 물때
+    if (stageForecast[0]) {
+      mulTtae = stageForecast[0].stage;
+    }
   }
 
   return {
     stationName: station.name,
+    region,
     tides: {
       high,
       low,
