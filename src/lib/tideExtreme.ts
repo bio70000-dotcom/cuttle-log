@@ -35,17 +35,37 @@ export async function fetchTideExtremes(
   yyyymmdd: string
 ): Promise<{ highs: TideExtreme[]; lows: TideExtreme[] }> {
   const key = import.meta.env.VITE_KHOA_API_KEY;
-  const url = `/khoaapi/oceangrid/tideObsPreTab/search.do?ServiceKey=${key}&ObsCode=${stationCode}&Date=${yyyymmdd}&ResultType=json`;
-  
+  if (!key) throw new Error('KHOA API 키가 설정되지 않았습니다');
+
+  const url = new URL('/khoaapi/oceangrid/tideObsPreTab/search.do', window.location.origin);
+  url.searchParams.set('ServiceKey', key);
+  url.searchParams.set('ObsCode', stationCode);
+  url.searchParams.set('Date', yyyymmdd);
+  url.searchParams.set('ResultType', 'json');
+
+  console.log('🌊 Fetching tide extremes:', url.toString());
+
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8000);
-  
+  const timeout = setTimeout(() => controller.abort(), 10000);
+
   try {
-    const r = await fetch(url, { signal: controller.signal });
-    const json = await r.json();
+    const res = await fetch(url.toString(), {
+      signal: controller.signal,
+      headers: { 'Accept': 'application/json' }
+    });
     clearTimeout(timeout);
 
+    if (!res.ok) {
+      console.error('❌ KHOA API 응답 오류:', res.status, res.statusText);
+      throw new Error(`KHOA API 응답 오류: ${res.status}`);
+    }
+
+    const json = await res.json();
+    console.log('📦 KHOA API 응답:', json);
+
     const rows = (json?.result?.data ?? json?.data ?? []) as any[];
+    console.log(`📊 극치 데이터 레코드 수: ${rows.length}`);
+
     const today = yyyymmdd.slice(0, 4) + '-' + yyyymmdd.slice(4, 6) + '-' + yyyymmdd.slice(6, 8);
     const norm: Array<{ type: 'HIGH' | 'LOW'; time: string; level: number }> = [];
 
@@ -54,11 +74,11 @@ export async function fetchTideExtremes(
       const t = String(r.tph_time ?? '');
       const v = Number(r.tph_level);
       if (!Number.isFinite(v) || !t.startsWith(today)) continue;
-      
+
       const isHigh = raw.includes('고') || raw.toUpperCase() === 'H';
       const isLow = raw.includes('저') || raw.toUpperCase() === 'L';
       if (!isHigh && !isLow) continue;
-      
+
       norm.push({
         type: isHigh ? 'HIGH' : 'LOW',
         time: new Date(t).toISOString(),
@@ -69,10 +89,16 @@ export async function fetchTideExtremes(
     const highs = norm.filter((n) => n.type === 'HIGH').sort((a, b) => a.time.localeCompare(b.time));
     const lows = norm.filter((n) => n.type === 'LOW').sort((a, b) => a.time.localeCompare(b.time));
 
+    console.log(`✅ 파싱 완료 - 만조: ${highs.length}개, 간조: ${lows.length}개`);
+
     return { highs, lows };
   } catch (e: any) {
     clearTimeout(timeout);
-    throw new Error('조석 극치 정보를 불러올 수 없습니다');
+    console.error('❌ 조석 극치 fetch 에러:', e);
+    if (e.name === 'AbortError') {
+      throw new Error('요청 시간 초과 (10초)');
+    }
+    throw new Error(e.message || '조석 극치 정보를 불러올 수 없습니다');
   }
 }
 
