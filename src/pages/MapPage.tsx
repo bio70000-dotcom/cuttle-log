@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { useLocationStore } from '@/stores/locationStore';
 import { useWeatherStore } from '@/stores/weatherStore';
+import { useTideStore } from '@/stores/tideStore';
 import { reverseGeocode } from '@/lib/geocoding';
 
 function LocationButton() {
@@ -17,6 +18,7 @@ function LocationButton() {
   const [loading, setLoading] = useState(false);
   const { setCoords, setPlaceName } = useLocationStore();
   const refreshWeather = useWeatherStore((state) => state.refresh);
+  const refreshTide = useTideStore((state) => state.refresh);
 
   const handleLocate = () => {
     if (!navigator.geolocation) {
@@ -58,6 +60,11 @@ function LocationButton() {
         // Fetch weather data
         refreshWeather(latitude, longitude).catch((error) => {
           console.warn('Weather fetch failed:', error);
+        });
+
+        // Fetch tide data
+        refreshTide(latitude, longitude).catch((error) => {
+          console.warn('Tide fetch failed:', error);
         });
       },
       (error) => {
