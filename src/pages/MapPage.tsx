@@ -3,6 +3,8 @@ import { useRef, useState, useEffect } from 'react';
 import { Navigation, PlayCircle, StopCircle, Target } from 'lucide-react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import 'leaflet-defaulticon-compatibility/dist/leaflet-defaulticon-compatibility.css';
+import 'leaflet-defaulticon-compatibility';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { db } from '@/db/schema';
