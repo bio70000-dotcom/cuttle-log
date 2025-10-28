@@ -47,6 +47,16 @@ export interface EgiPreset {
   notes?: string;
 }
 
+export interface TrackPoint {
+  id?: number;
+  tripId: number;
+  at: Date;
+  lat: number;
+  lng: number;
+  accuracy?: number;
+  conditionId?: number;
+}
+
 export interface CatchEvent {
   id?: number;
   tripId: number;
@@ -97,18 +107,20 @@ export class FishingLogDB extends Dexie {
   rigPresets!: Table<RigPreset>;
   egiPresets!: Table<EgiPreset>;
   catchEvents!: Table<CatchEvent>;
+  trackPoints!: Table<TrackPoint>;
   outbox!: Table<Outbox>;
   settings!: Table<AppSettings>;
   spots!: Table<Spot>;
 
   constructor() {
     super('FishingLogDB');
-    this.version(1).stores({
+    this.version(2).stores({
       trips: '++id, dateStart, spotId, tideStage',
       conditions: '++id, tripId, at',
       rigPresets: '++id, slot',
       egiPresets: '++id, slot',
       catchEvents: '++id, tripId, at, rigSlot, egiSlot',
+      trackPoints: '++id, tripId, at',
       outbox: '++id, createdAt, entityType',
       settings: '++id, key',
       spots: '++id, lat, lng, createdAt',
