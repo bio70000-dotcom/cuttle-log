@@ -1,4 +1,5 @@
 import stations from "@/data/khoaStations.json";
+import { KHOA_API_KEY } from "@/lib/config";
 
 function haversine(lat1: number, lon1: number, lat2: number, lon2: number) {
   const R = 6371;
@@ -34,7 +35,7 @@ export async function fetchTideExtremes(
   stationCode: string,
   yyyymmdd: string
 ): Promise<{ highs: TideExtreme[]; lows: TideExtreme[] }> {
-  const key = import.meta.env.VITE_KHOA_API_KEY;
+  const key = KHOA_API_KEY;
   if (!key) throw new Error('KHOA API 키가 설정되지 않았습니다');
 
   const url = new URL('/khoaapi/oceangrid/tideObsPreTab/search.do', window.location.origin);
