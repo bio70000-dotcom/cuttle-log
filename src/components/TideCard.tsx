@@ -7,7 +7,7 @@ import { format } from 'date-fns';
 
 export function TideCard() {
   const { lat, lng } = useLocationStore();
-  const { stationName, highs, lows, isLoading, error, updatedAt, refresh } = useTideStore();
+  const { stationName, high, low, rangeToday, isLoading, error, updatedAt, refresh } = useTideStore();
 
   const handleRefresh = () => {
     if (lat && lng) {
@@ -15,12 +15,10 @@ export function TideCard() {
     }
   };
 
-  const formatTime = (timeStr?: string) => {
-    if (!timeStr) return '-';
-    // timeStr format: "202510280100" -> "01:00"
-    const hour = timeStr.slice(8, 10);
-    const min = timeStr.slice(10, 12);
-    return `${hour}:${min}`;
+  const formatTimeLevel = (item?: { time: string; level: number }) => {
+    if (!item) return '-';
+    const localTime = format(new Date(item.time), 'HH:mm');
+    return `${localTime} · ${item.level} cm`;
   };
 
   return (
@@ -42,7 +40,7 @@ export function TideCard() {
         {!lat || !lng ? (
           <p className="text-sm text-muted-foreground">지도에서 '내 위치'를 먼저 눌러주세요.</p>
         ) : error ? (
-          <p className="text-sm text-destructive">조석 정보를 불러올 수 없습니다.</p>
+          <p className="text-sm text-destructive">{error}</p>
         ) : stationName ? (
           <div className="space-y-2 text-sm">
             <div>
@@ -51,11 +49,17 @@ export function TideCard() {
             </div>
             <div>
               <span className="text-muted-foreground">만조:</span>{' '}
-              <span className="font-medium">{formatTime(highs?.[0])}</span>
+              <span className="font-medium">{formatTimeLevel(high)}</span>
             </div>
             <div>
               <span className="text-muted-foreground">간조:</span>{' '}
-              <span className="font-medium">{formatTime(lows?.[0])}</span>
+              <span className="font-medium">{formatTimeLevel(low)}</span>
+            </div>
+            <div>
+              <span className="text-muted-foreground">조차:</span>{' '}
+              <span className="font-medium">
+                {rangeToday != null ? `${rangeToday.toFixed(0)} cm` : '-'}
+              </span>
             </div>
             {updatedAt && (
               <div className="text-xs text-muted-foreground">
