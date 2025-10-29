@@ -203,5 +203,18 @@ export async function loadMarineBundle(lat: number, lng: number): Promise<Marine
   };
   
   console.log('📦 MarineBundle:', bundle);
+  
+  // 디버그용: 개발 환경에서 브라우저 콘솔에서 확인 가능하도록 노출
+  if (typeof window !== 'undefined') {
+    const extremesISO = [...highs.map(h => h.time), ...lows.map(l => l.time)].sort();
+    (window as any).__marineBundleDebug = {
+      extremes: extremesISO,
+      bundle,
+      todayFlowPct,
+      stageForecast
+    };
+    console.log('🔍 디버그 데이터가 window.__marineBundleDebug에 저장되었습니다.');
+  }
+  
   return bundle;
 }

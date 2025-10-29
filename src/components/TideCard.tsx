@@ -88,11 +88,21 @@ export function TideCard() {
             <div className="flex items-center justify-between mb-4 p-3 bg-primary/5 rounded-lg">
               <div className="flex-1">
                 <div className="text-xs text-muted-foreground mb-1">물때</div>
-                <div className="text-2xl font-bold">{data.mulTtae || '-'}</div>
+                <div className="text-2xl font-bold">
+                  {data.mulTtae !== undefined && data.mulTtae !== null && data.mulTtae !== '' ? data.mulTtae : '-'}
+                </div>
               </div>
               <div className="flex-1 text-right">
                 <div className="text-xs text-muted-foreground mb-1">물흐름</div>
-                <div className="text-2xl font-bold">{data.tides.progressPct != null ? `${data.tides.progressPct}%` : '-'}</div>
+                <div className="text-2xl font-bold">
+                  {data.tides.progressPct !== undefined && data.tides.progressPct !== null 
+                    ? `${data.tides.progressPct}%` 
+                    : (data.stageForecast?.[0]?.flowPct !== undefined && data.stageForecast[0].flowPct !== null
+                        ? `${data.stageForecast[0].flowPct}%`
+                        : '-'
+                      )
+                  }
+                </div>
               </div>
             </div>
 

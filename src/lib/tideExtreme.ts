@@ -1,6 +1,15 @@
 import stations from "@/data/khoaStations.json";
 import { KHOA_API_KEY } from "@/lib/config";
 
+// KST 시간을 ISO 문자열로 변환 (시간대 정보 명시)
+function toKstISO(localTime: string): string | undefined {
+  if (!localTime) return undefined;
+  // 'YYYY-MM-DD HH:mm:ss' -> 'YYYY-MM-DDTHH:mm:ss+09:00'
+  const s = localTime.replace(' ', 'T') + '+09:00';
+  const d = new Date(s);
+  return Number.isFinite(d.getTime()) ? d.toISOString() : undefined;
+}
+
 function haversine(lat1: number, lon1: number, lat2: number, lon2: number) {
   const R = 6371;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
@@ -72,9 +81,12 @@ export async function fetchTideExtremes(
 
     for (const r of rows) {
       const raw = (r.hl_code ?? '').toString();
-      const t = String(r.tph_time ?? '');
+      const tLocal = String(r.tph_time ?? '');
+      const tISO = toKstISO(tLocal);
       const v = Number(r.tph_level);
-      if (!Number.isFinite(v) || !t.startsWith(today)) continue;
+      
+      // KST 시간대로 파싱된 ISO 문자열을 사용하여 날짜 필터링
+      if (!tISO || !tLocal.startsWith(today) || !Number.isFinite(v)) continue;
 
       const isHigh = raw.includes('고') || raw.toUpperCase() === 'H';
       const isLow = raw.includes('저') || raw.toUpperCase() === 'L';
@@ -82,7 +94,7 @@ export async function fetchTideExtremes(
 
       norm.push({
         type: isHigh ? 'HIGH' : 'LOW',
-        time: new Date(t).toISOString(),
+        time: tISO,
         level: v,
       });
     }
