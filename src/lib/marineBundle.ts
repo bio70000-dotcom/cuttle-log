@@ -123,11 +123,11 @@ export async function loadMarineBundle(lat?: number, lng?: number): Promise<Mari
     ? resolveRegion(LAT, LNG)
     : (settings.regionManual || resolveRegion(LAT, LNG));
 
-  // Fetch all data in parallel
+  // Fetch all data in parallel (moon phases with fallback will never reject)
   const [tidesResult, sstKHOA, moonPhases] = await Promise.allSettled([
     fetchTideExtremes(station.code, dateStr),
     fetchKHOASST(station.code, dateStr),
-    fetchDailyMoonPhases(LAT, LNG, 7),
+    fetchDailyMoonPhases(LAT, LNG, 7).catch(() => []), // Always return array even on error
   ]);
 
   // Process tides
@@ -164,15 +164,17 @@ export async function loadMarineBundle(lat?: number, lng?: number): Promise<Mari
   let mulTtae: string | undefined;
   let stageForecast: StageDay[] = [];
 
-  if (moonPhases.status === 'fulfilled' && moonPhases.value.length > 0) {
-    const phases = moonPhases.value;
-    console.log('🌙 Moon phases:', phases);
+  // ALWAYS generate stageForecast (fallback ensures we have data)
+  const phases = moonPhases.status === 'fulfilled' ? moonPhases.value : [];
+  
+  if (phases.length > 0) {
+    console.log('🌙 Moon phases:', phases.length, 'days');
     console.log('📍 Region:', region);
     
     // 7-day forecast with region-aware stage & baseline flow%
     stageForecast = phases.map((d, idx) => {
       const st = stageForRegion(d.phase01, region);
-      console.log(`Day ${idx} (${d.date}): phase=${d.phase01}, stage=${st.stage}, baselineFlow=${st.baselineFlow}`);
+      console.log(`Day ${idx} (${d.date}): phase=${d.phase01.toFixed(3)}, stage=${st.stage}, baselineFlow=${st.baselineFlow}`);
       
       // For today (idx 0), use live flow% if available
       const flowPct = (idx === 0 && todayFlowPct != null) ? todayFlowPct : st.baselineFlow ?? null;
@@ -186,7 +188,7 @@ export async function loadMarineBundle(lat?: number, lng?: number): Promise<Mari
       console.log('✅ Today mulTtae:', mulTtae, 'flowPct:', stageForecast[0].flowPct);
     }
   } else {
-    console.error('❌ Moon phases failed:', moonPhases);
+    console.error('❌ Moon phases empty after fallback');
   }
 
   const bundle = {
