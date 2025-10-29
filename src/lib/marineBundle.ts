@@ -6,6 +6,7 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import { useLocationStore } from '@/stores/locationStore';
 import { KHOA_API_KEY } from '@/lib/config';
 import { fetchDailyMoonPhases } from '@/lib/meteo';
+import { getFlowRate, mapRegionKeyToEngine } from '@/lib/tidalFlowEngine';
 
 type TideExtreme = {
   time: string;
@@ -160,7 +161,7 @@ export async function loadMarineBundle(lat?: number, lng?: number): Promise<Mari
     sstFinal = await fetchOpenMeteoSST(LAT, LNG);
   }
 
-  // Process 물때 (mul-ttae) and 7-day forecast using region profile
+  // Process 물때 (mul-ttae) and 7-day forecast using region profile + flow engine
   let mulTtae: string | undefined;
   let stageForecast: StageDay[] = [];
 
@@ -172,13 +173,33 @@ export async function loadMarineBundle(lat?: number, lng?: number): Promise<Mari
     console.log('📍 Region:', region);
     console.log('🏢 Station:', station.name);
     
-    // 7-day forecast with neap-based indexing & baseline flow%
+    // Normalize tide range for amplitude (0-1 scale, typical max ~300cm)
+    const tideRangeNorm = range ? Math.min(range / 300, 1.0) : undefined;
+    
+    // 7-day forecast with neap-based indexing & advanced flow engine
     stageForecast = phases.map((d, idx) => {
       const st = stageForRegionUsingNeap(d.phase01, region, station.name);
-      console.log(`Day ${idx} (${d.date}): phase=${d.phase01.toFixed(3)}, stage=${st.stage}, baselineFlow=${st.baselineFlow}`);
+      
+      // Use flow engine for sophisticated flow% calculation
+      let flowPct: number | null = null;
+      try {
+        const engineRegion = mapRegionKeyToEngine(region);
+        const ampInput = tideRangeNorm !== undefined
+          ? { type: 'tide_range' as const, value: tideRangeNorm }
+          : { type: 'label' as const, value: '일반' as const };
+        
+        flowPct = getFlowRate(engineRegion, st.stage, ampInput);
+        console.log(`Day ${idx} (${d.date}): phase=${d.phase01.toFixed(3)}, stage=${st.stage}, flowPct=${flowPct}% (engine)`);
+      } catch (e) {
+        // Fallback to baseline if engine fails
+        flowPct = st.baselineFlow ?? null;
+        console.warn(`⚠️ Flow engine fallback for ${d.date}:`, e);
+      }
       
       // For today (idx 0), use live flow% if available
-      const flowPct = (idx === 0 && todayFlowPct != null) ? todayFlowPct : st.baselineFlow ?? null;
+      if (idx === 0 && todayFlowPct != null) {
+        flowPct = todayFlowPct;
+      }
       
       return { date: d.date, stage: st.stage, flowPct, region };
     });
