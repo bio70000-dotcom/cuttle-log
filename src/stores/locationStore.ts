@@ -15,8 +15,13 @@ export const useLocationStore = create<LocationState>((set) => ({
   lng: undefined,
   placeName: undefined,
   lastUpdated: undefined,
-  setCoords: (lat: number, lng: number) => 
-    set({ lat, lng, lastUpdated: new Date().toISOString() }),
+  setCoords: (lat: number, lng: number) => {
+    if (typeof window !== 'undefined') {
+      (window as any).__lat = lat;
+      (window as any).__lng = lng;
+    }
+    set({ lat, lng, lastUpdated: new Date().toISOString() });
+  },
   setPlaceName: (name: string) => 
     set({ placeName: name }),
   clear: () => 

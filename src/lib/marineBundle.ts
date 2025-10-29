@@ -3,7 +3,9 @@ import { pickNearestTimeRow, flowPercentFromExtremes } from '@/lib/marineExtras'
 import { stageForRegion } from '@/lib/mulTtae';
 import { resolveRegion, type RegionKey } from '@/config/regions';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useLocationStore } from '@/stores/locationStore';
 import { KHOA_API_KEY } from '@/lib/config';
+import { fetchDailyMoonPhases } from '@/lib/meteo';
 
 type TideExtreme = {
   time: string;
@@ -94,38 +96,38 @@ async function fetchOpenMeteoSST(lat: number, lng: number): Promise<number | und
   }
 }
 
-async function fetchDailyMoonPhases(lat: number, lng: number, days = 7): Promise<{ date: string; phase01: number }[]> {
-  try {
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&timezone=auto&daily=moon_phase&forecast_days=${days}`;
-    const res = await fetch(url);
-    if (!res.ok) return [];
+// Moved to src/lib/meteo.ts
 
-    const json = await res.json();
-    const times: string[] = json?.daily?.time ?? [];
-    const phases: number[] = json?.daily?.moon_phase ?? [];
-    return times.map((t, i) => ({ date: t, phase01: phases[i] }));
-  } catch (e) {
-    console.error('❌ Moon phase fetch error:', e);
-    return [];
+export async function loadMarineBundle(lat?: number, lng?: number): Promise<MarineBundle> {
+  // 1) Resolve coordinates
+  const loc = useLocationStore.getState();
+  const LAT = lat ?? loc.lat;
+  const LNG = lng ?? loc.lng;
+  
+  if (LAT == null || LNG == null) {
+    throw new Error('좌표 없음: 위치를 먼저 설정해주세요.');
   }
-}
+  
+  if (typeof window !== 'undefined') {
+    (window as any).__lat = LAT;
+    (window as any).__lng = LNG;
+  }
 
-export async function loadMarineBundle(lat: number, lng: number): Promise<MarineBundle> {
-  const station = findNearestStation(lat, lng);
+  const station = findNearestStation(LAT, LNG);
   const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
   const now = Date.now();
 
   // Resolve region from GPS or manual override
   const settings = useSettingsStore.getState();
   const region: RegionKey = settings.regionMode === 'AUTO'
-    ? resolveRegion(lat, lng)
-    : (settings.regionManual || resolveRegion(lat, lng));
+    ? resolveRegion(LAT, LNG)
+    : (settings.regionManual || resolveRegion(LAT, LNG));
 
   // Fetch all data in parallel
   const [tidesResult, sstKHOA, moonPhases] = await Promise.allSettled([
     fetchTideExtremes(station.code, dateStr),
     fetchKHOASST(station.code, dateStr),
-    fetchDailyMoonPhases(lat, lng, 7),
+    fetchDailyMoonPhases(LAT, LNG, 7),
   ]);
 
   // Process tides
@@ -155,7 +157,7 @@ export async function loadMarineBundle(lat: number, lng: number): Promise<Marine
     sstFinal = sstKHOA.value;
   } else {
     // Fallback to Open-Meteo
-    sstFinal = await fetchOpenMeteoSST(lat, lng);
+    sstFinal = await fetchOpenMeteoSST(LAT, LNG);
   }
 
   // Process 물때 (mul-ttae) and 7-day forecast using region profile
@@ -213,7 +215,8 @@ export async function loadMarineBundle(lat: number, lng: number): Promise<Marine
       todayFlowPct,
       stageForecast
     };
-    console.log('🔍 디버그 데이터가 window.__marineBundleDebug에 저장되었습니다.');
+    (window as any).__bundleData = bundle;
+    console.log('🔍 디버그 데이터가 window.__marineBundleDebug, window.__bundleData에 저장되었습니다.');
   }
   
   return bundle;
