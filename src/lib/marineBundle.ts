@@ -1,6 +1,6 @@
 import { findNearestStation, fetchTideExtremes, pickPrimary } from '@/lib/tideExtreme';
 import { pickNearestTimeRow, flowPercentFromExtremes } from '@/lib/marineExtras';
-import { stageForRegion } from '@/lib/mulTtae';
+import { stageForRegionUsingNeap } from '@/lib/mulTtae';
 import { resolveRegion, type RegionKey } from '@/config/regions';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useLocationStore } from '@/stores/locationStore';
@@ -170,10 +170,11 @@ export async function loadMarineBundle(lat?: number, lng?: number): Promise<Mari
   if (phases.length > 0) {
     console.log('🌙 Moon phases:', phases.length, 'days');
     console.log('📍 Region:', region);
+    console.log('🏢 Station:', station.name);
     
-    // 7-day forecast with region-aware stage & baseline flow%
+    // 7-day forecast with neap-based indexing & baseline flow%
     stageForecast = phases.map((d, idx) => {
-      const st = stageForRegion(d.phase01, region);
+      const st = stageForRegionUsingNeap(d.phase01, region, station.name);
       console.log(`Day ${idx} (${d.date}): phase=${d.phase01.toFixed(3)}, stage=${st.stage}, baselineFlow=${st.baselineFlow}`);
       
       // For today (idx 0), use live flow% if available
