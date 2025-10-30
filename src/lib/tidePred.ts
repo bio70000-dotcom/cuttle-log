@@ -1,4 +1,5 @@
 import stations from "@/data/khoaStations.json";
+import { khoaUrl, fetchJson } from "@/lib/khoa";
 
 function haversine(lat1: number, lon1: number, lat2: number, lon2: number) {
   const R = 6371;
@@ -27,9 +28,15 @@ export function findNearestStation(lat: number, lng: number) {
 
 export async function fetchTidePred(stationCode: string, dateStr: string) {
   const key = import.meta.env.VITE_KHOA_API_KEY;
-  const url = `https://www.khoa.go.kr/api/oceangrid/tideCurPre/search.do?ServiceKey=${key}&ObsCode=${stationCode}&Date=${dateStr}&ResultType=json`;
-  const r = await fetch(url);
-  const j = await r.json();
+  if (!key) throw new Error('KHOA API 키가 설정되지 않았습니다');
+  
+  const url = khoaUrl('/api/oceangrid/tideCurPre/search.do', {
+    ServiceKey: key,
+    ObsCode: stationCode,
+    Date: dateStr,
+  });
+  
+  const j = await fetchJson(url);
   return j?.result?.data ?? [];
 }
 

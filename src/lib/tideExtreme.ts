@@ -1,6 +1,7 @@
 import stations from "@/data/khoaStations.json";
 import { KHOA_API_KEY } from "@/lib/config";
 import { toKST, formatKST } from "@/lib/time";
+import { khoaUrl, fetchJson } from "@/lib/khoa";
 
 // KST 시간을 ISO 문자열로 변환 (시간대 정보 명시)
 function toKstISO(localTime: string): string | undefined {
@@ -48,30 +49,14 @@ export async function fetchTideExtremes(
   const key = KHOA_API_KEY;
   if (!key) throw new Error('KHOA API 키가 설정되지 않았습니다');
 
-  const url = new URL('/khoaapi/oceangrid/tideObsPreTab/search.do', window.location.origin);
-  url.searchParams.set('ServiceKey', key);
-  url.searchParams.set('ObsCode', stationCode);
-  url.searchParams.set('Date', yyyymmdd);
-  url.searchParams.set('ResultType', 'json');
-
-  console.log('🌊 Fetching tide extremes:', url.toString());
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10000);
+  const url = khoaUrl('/api/oceangrid/tideObsPreTab/search.do', {
+    ServiceKey: key,
+    ObsCode: stationCode,
+    Date: yyyymmdd,
+  });
 
   try {
-    const res = await fetch(url.toString(), {
-      signal: controller.signal,
-      headers: { 'Accept': 'application/json' }
-    });
-    clearTimeout(timeout);
-
-    if (!res.ok) {
-      console.error('❌ KHOA API 응답 오류:', res.status, res.statusText);
-      throw new Error(`KHOA API 응답 오류: ${res.status}`);
-    }
-
-    const json = await res.json();
+    const json = await fetchJson(url);
     console.log('📦 KHOA API 응답:', json);
 
     const rows = (json?.result?.data ?? json?.data ?? []) as any[];
@@ -107,11 +92,7 @@ export async function fetchTideExtremes(
 
     return { highs, lows };
   } catch (e: any) {
-    clearTimeout(timeout);
     console.error('❌ 조석 극치 fetch 에러:', e);
-    if (e.name === 'AbortError') {
-      throw new Error('요청 시간 초과 (10초)');
-    }
     throw new Error(e.message || '조석 극치 정보를 불러올 수 없습니다');
   }
 }
