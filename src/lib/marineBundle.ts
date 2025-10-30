@@ -1,5 +1,5 @@
 import { findNearestStation, fetchTideExtremes, pickPrimary } from '@/lib/tideExtreme';
-import { pickNearestTimeRow, flowPercentFromExtremes } from '@/lib/marineExtras';
+import { pickNearestTimeRow } from '@/lib/marineExtras';
 import { stageForRegionUsingNeap } from '@/lib/mulTtae';
 import { resolveRegion, type RegionKey } from '@/config/regions';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -7,6 +7,53 @@ import { useLocationStore } from '@/stores/locationStore';
 import { KHOA_API_KEY } from '@/lib/config';
 import { fetchDailyMoonPhases } from '@/lib/meteo';
 import { getFlowRate, mapRegionKeyToEngine } from '@/lib/tidalFlowEngine';
+
+// =====================================================
+//  🌊 Engine Integration Helpers (Code: EN, UI: KR)
+// =====================================================
+
+/**
+ * Convert tidal stage label to engine's mulOrLabel format
+ */
+function stageToMulOrLabel(stage: string): number | string {
+  const s = stage.trim();
+  if (s === "조금") return "조금";   // engine interprets as 15물
+  if (s === "무시") return "무시";   // Incheon-specific
+  if (/^\d+물?$/.test(s)) return s;  // e.g., "1물", "7물"
+  return "일반";                     // fallback
+}
+
+/**
+ * Build amplitude input from available signals
+ */
+function makeAmpInputFromSignals(signals?: {
+  tideRangeNorm?: number;
+  label?: "무시" | "조금" | "일반" | "최대";
+}): any | undefined {
+  if (!signals) return undefined;
+  if (signals.label) return { type: "label", value: signals.label };
+  if (typeof signals.tideRangeNorm === "number")
+    return { type: "tide_range", value: signals.tideRangeNorm };
+  return undefined;
+}
+
+/**
+ * ✅ Single source of truth for flow percentage calculation
+ * Computes tidal flow% using ONLY the engine result
+ */
+function computeFlowPercent(params: {
+  regionArg: string | { lat: number; lon: number };
+  stage: string;
+  ampSignals?: { tideRangeNorm?: number; label?: "무시"|"조금"|"일반"|"최대" };
+}): number {
+  const mulOrLabel = stageToMulOrLabel(params.stage);
+  const ampInput = makeAmpInputFromSignals(params.ampSignals);
+  
+  // ✅ Engine is the only source of truth
+  const pct = getFlowRate(params.regionArg, mulOrLabel, ampInput);
+  
+  return pct;
+}
 
 type TideExtreme = {
   time: string;
@@ -135,7 +182,6 @@ export async function loadMarineBundle(lat?: number, lng?: number): Promise<Mari
   let highs: TideExtreme[] = [];
   let lows: TideExtreme[] = [];
   let range: number | undefined;
-  let todayFlowPct: number | undefined;
 
   if (tidesResult.status === 'fulfilled') {
     highs = tidesResult.value.highs;
@@ -144,12 +190,9 @@ export async function loadMarineBundle(lat?: number, lng?: number): Promise<Mari
     // Calculate range from primary high/low
     const primary = pickPrimary(highs, lows);
     range = primary.rangeToday;
-
-    // Collect all extreme times for flow calculation
+    
     const allExtremeTimes = [...highs.map(h => h.time), ...lows.map(l => l.time)];
-    todayFlowPct = flowPercentFromExtremes(allExtremeTimes, now);
-    console.log('🌊 Tide extremes:', allExtremeTimes);
-    console.log('📊 Today flow%:', todayFlowPct);
+    console.log('🌊 조석 극값 시각:', allExtremeTimes);
   }
 
   // Process SST with fallback
@@ -164,53 +207,47 @@ export async function loadMarineBundle(lat?: number, lng?: number): Promise<Mari
   // Process 물때 (mul-ttae) and 7-day forecast using region profile + flow engine
   let mulTtae: string | undefined;
   let stageForecast: StageDay[] = [];
+  let todayFlowPct: number | undefined;
 
   // ALWAYS generate stageForecast (fallback ensures we have data)
   const phases = moonPhases.status === 'fulfilled' ? moonPhases.value : [];
   
   if (phases.length > 0) {
-    console.log('🌙 Moon phases:', phases.length, 'days');
-    console.log('📍 Region:', region);
-    console.log('🏢 Station:', station.name);
+    console.log('🌙 달 위상:', phases.length, '일');
+    console.log('📍 지역:', region);
+    console.log('🏢 관측소:', station.name);
     
     // Normalize tide range for amplitude (0-1 scale, typical max ~300cm)
     const tideRangeNorm = range ? Math.min(range / 300, 1.0) : undefined;
+    console.log('📏 조석 범위 (정규화):', tideRangeNorm?.toFixed(2) ?? 'N/A');
     
-    // 7-day forecast with neap-based indexing & advanced flow engine
+    // Map region to engine format
+    const engineRegion = mapRegionKeyToEngine(region);
+    
+    // 7-day forecast with neap-based indexing & engine-only flow calculation
     stageForecast = phases.map((d, idx) => {
       const st = stageForRegionUsingNeap(d.phase01, region, station.name);
       
-      // Use flow engine for sophisticated flow% calculation
-      let flowPct: number | null = null;
-      try {
-        const engineRegion = mapRegionKeyToEngine(region);
-        const ampInput = tideRangeNorm !== undefined
-          ? { type: 'tide_range' as const, value: tideRangeNorm }
-          : { type: 'label' as const, value: '일반' as const };
-        
-        flowPct = getFlowRate(engineRegion, st.stage, ampInput);
-        console.log(`Day ${idx} (${d.date}): phase=${d.phase01.toFixed(3)}, stage=${st.stage}, flowPct=${flowPct}% (engine)`);
-      } catch (e) {
-        // Fallback to baseline if engine fails
-        flowPct = st.baselineFlow ?? null;
-        console.warn(`⚠️ Flow engine fallback for ${d.date}:`, e);
-      }
+      // ✅ Use flow engine as ONLY source of truth
+      const flowPct = computeFlowPercent({
+        regionArg: engineRegion,
+        stage: st.stage,
+        ampSignals: { tideRangeNorm }
+      });
       
-      // For today (idx 0), use live flow% if available
-      if (idx === 0 && todayFlowPct != null) {
-        flowPct = todayFlowPct;
-      }
+      console.log(`${idx}일차 (${d.date}): 위상=${d.phase01.toFixed(3)}, 물때=${st.stage}, 흐름률=${flowPct}%`);
       
       return { date: d.date, stage: st.stage, flowPct, region };
     });
     
-    // Today's 물때
+    // Today's values
     if (stageForecast[0]) {
       mulTtae = stageForecast[0].stage;
-      console.log('✅ Today mulTtae:', mulTtae, 'flowPct:', stageForecast[0].flowPct);
+      todayFlowPct = stageForecast[0].flowPct ?? undefined;
+      console.log(`✅ 오늘(${mulTtae}) 물때 흐름률: ${todayFlowPct}% (엔진 계산값)`);
     }
   } else {
-    console.error('❌ Moon phases empty after fallback');
+    console.error('❌ 달 위상 데이터가 없습니다 (폴백 실패)');
   }
 
   const bundle = {
@@ -228,7 +265,7 @@ export async function loadMarineBundle(lat?: number, lng?: number): Promise<Mari
     updatedAt: new Date().toISOString(),
   };
   
-  console.log('📦 MarineBundle:', bundle);
+  console.log('📦 해양정보 번들 생성 완료');
   
   // 디버그용: 개발 환경에서 브라우저 콘솔에서 확인 가능하도록 노출
   if (typeof window !== 'undefined') {
@@ -240,7 +277,7 @@ export async function loadMarineBundle(lat?: number, lng?: number): Promise<Mari
       stageForecast
     };
     (window as any).__bundleData = bundle;
-    console.log('🔍 디버그 데이터가 window.__marineBundleDebug, window.__bundleData에 저장되었습니다.');
+    console.log('🔍 디버그: window.__marineBundleDebug, window.__bundleData 저장 완료');
   }
   
   return bundle;
