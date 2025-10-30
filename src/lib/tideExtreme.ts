@@ -1,5 +1,6 @@
 import stations from "@/data/khoaStations.json";
 import { KHOA_API_KEY } from "@/lib/config";
+import { toKST, formatKST } from "@/lib/time";
 
 // KST 시간을 ISO 문자열로 변환 (시간대 정보 명시)
 function toKstISO(localTime: string): string | undefined {
@@ -126,4 +127,68 @@ export function pickPrimary(highs: TideExtreme[], lows: TideExtreme[]) {
       : undefined;
   
   return { high: nextHigh, low: nextLow, rangeToday };
+}
+
+// =====================================================
+//  Daily Range Grouping (KST-based)
+// =====================================================
+
+type Extreme = { time: string; type: "HIGH" | "LOW"; level: number };
+
+export function groupDailyRangeKST(extremes: Extreme[]) {
+  // 1) UTC→KST 변환
+  const kst = extremes.map(x => ({ ...x, kst: toKST(x.time) }));
+
+  // 2) KST 날짜별로 묶기
+  const byDay = new Map<string, Extreme[]>();
+  for (const e of kst) {
+    const key = formatKST(e.kst); // "2025-10-30"
+    if (!byDay.has(key)) byDay.set(key, []);
+    byDay.get(key)!.push(e);
+  }
+
+  // 3) 날짜별 range 계산
+  const daily = Array.from(byDay.entries()).map(([date, arr]) => {
+    const highs = arr.filter(a => a.type === "HIGH").map(a => a.level);
+    const lows = arr.filter(a => a.type === "LOW").map(a => a.level);
+    const maxHigh = highs.length ? Math.max(...highs) : NaN;
+    const minLow = lows.length ? Math.min(...lows) : NaN;
+    const range = (isFinite(maxHigh) && isFinite(minLow)) ? (maxHigh - minLow) : NaN;
+    return { date, range, count: arr.length };
+  }).sort((a, b) => a.date.localeCompare(b.date));
+
+  return daily; // [{date:"2025-10-29", range:...}, ...]
+}
+
+// =====================================================
+//  Multi-day Fetch (15+ days for rolling analysis)
+// =====================================================
+
+export async function fetchTideExtremesMultiDay(
+  stationCode: string,
+  startYyyymmdd: string,
+  days: number
+): Promise<Extreme[]> {
+  const all: Extreme[] = [];
+  const start = new Date(
+    parseInt(startYyyymmdd.slice(0, 4)),
+    parseInt(startYyyymmdd.slice(4, 6)) - 1,
+    parseInt(startYyyymmdd.slice(6, 8))
+  );
+
+  for (let i = 0; i < days; i++) {
+    const d = new Date(start);
+    d.setDate(d.getDate() + i);
+    const yyyymmdd = d.toISOString().slice(0, 10).replace(/-/g, '');
+    
+    try {
+      const { highs, lows } = await fetchTideExtremes(stationCode, yyyymmdd);
+      all.push(...highs.map(h => ({ time: h.time, type: "HIGH" as const, level: h.level })));
+      all.push(...lows.map(l => ({ time: l.time, type: "LOW" as const, level: l.level })));
+    } catch (e) {
+      console.warn(`⚠️ ${yyyymmdd} 조석 데이터 fetch 실패:`, e);
+    }
+  }
+
+  return all;
 }
