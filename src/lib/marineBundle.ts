@@ -9,13 +9,12 @@ import { resolveStageByRollingMin } from '@/lib/stageResolver';
 import { normalizeRangeRolling } from '@/lib/ampNormalizer';
 import { formatKST } from '@/lib/time';
 import { pickNearestTimeRow } from '@/lib/marineExtras';
-import { moonPhaseToAgeDays } from '@/lib/mulTtae';
-import { getNationalTideLabelFromMoonAge } from '@/lib/tideLabels';
+import { getTodayTideLabelKST, NATIONAL_LABEL_ANCHOR_KST_ISO } from '@/lib/tideLabels';
+import { toKSTMidnight, diffDaysKST } from '@/lib/timeKST';
 import { resolveRegion, type RegionKey } from '@/config/regions';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useLocationStore } from '@/stores/locationStore';
 import { KHOA_API_KEY } from '@/lib/config';
-import { fetchDailyMoonPhases } from '@/lib/meteo';
 import { getFlowRate, mapRegionKeyToEngine } from '@/lib/tidalFlowEngine';
 
 // =====================================================
@@ -186,12 +185,11 @@ export async function loadMarineBundle(lat?: number, lng?: number): Promise<Mari
   startDate.setDate(startDate.getDate() - 14);
   const startYyyymmdd = startDate.toISOString().slice(0, 10).replace(/-/g, '');
 
-  // Fetch all data in parallel
-  const [tidesResult, rollingExtremes, sstKHOA, moonPhases] = await Promise.allSettled([
+  // Fetch all data in parallel (moon phase no longer needed)
+  const [tidesResult, rollingExtremes, sstKHOA] = await Promise.allSettled([
     fetchTideExtremes(station.code, dateStr),
     fetchTideExtremesMultiDay(station.code, startYyyymmdd, 15),
     fetchKHOASST(station.code, dateStr),
-    fetchDailyMoonPhases(LAT, LNG, 7).catch(() => []), // Always return array even on error
   ]);
 
   // Process tides
@@ -221,7 +219,7 @@ export async function loadMarineBundle(lat?: number, lng?: number): Promise<Mari
   }
 
   // =====================================================
-  //  🌊 National Tide Label System (Moon-Based)
+  //  🌊 National Tide Label System (KST Calendar-Based)
   // =====================================================
   
   let mulTtae: string | undefined;
@@ -251,32 +249,38 @@ export async function loadMarineBundle(lat?: number, lng?: number): Promise<Mari
     if (range) tideRangeNorm = Math.min(range / 300, 1.0);
   }
 
-  // Primary: Use national label system based on moon phase
-  const phases = moonPhases.status === 'fulfilled' ? moonPhases.value : [];
-  if (phases.length > 0) {
-    const engineRegion = mapRegionKeyToEngine(region);
+  // ✅ Primary: Use KST calendar-based national label system
+  // No moon phase dependency - purely based on calendar days from anchor
+  const engineRegion = mapRegionKeyToEngine(region);
+  
+  // Generate 7-day forecast
+  const baseDate = new Date();
+  stageForecast = [];
+  
+  for (let i = 0; i < 7; i++) {
+    const forecastDate = new Date(baseDate);
+    forecastDate.setDate(baseDate.getDate() + i);
     
-    stageForecast = phases.map((d) => {
-      // Use national label system (same label for all regions on same date)
-      const moonAge = moonPhaseToAgeDays(d.phase01 ?? 0);
-      const stage = getNationalTideLabelFromMoonAge(moonAge);
-      
-      const flowPct = computeFlowPercent({
-        regionArg: engineRegion,
-        stage,
-        ampSignals: tideRangeNorm != null ? { tideRangeNorm } : undefined
-      });
-      
-      return { date: d.date, stage, flowPct, region };
+    const stage = getTodayTideLabelKST(forecastDate);
+    const dateStr = forecastDate.toISOString().slice(0, 10);
+    
+    const flowPct = computeFlowPercent({
+      regionArg: engineRegion,
+      stage,
+      ampSignals: tideRangeNorm != null ? { tideRangeNorm } : undefined
     });
     
-    if (stageForecast[0]) {
-      mulTtae = stageForecast[0].stage;
-      todayFlowPct = stageForecast[0].flowPct ?? undefined;
-      console.log(`🧭 물때 결정 (국가 표준): 오늘=${mulTtae}`);
-    }
-  } else {
-    console.warn('⚠️ 달 위상 데이터를 불러올 수 없습니다');
+    stageForecast.push({ date: dateStr, stage, flowPct, region });
+  }
+  
+  if (stageForecast[0]) {
+    mulTtae = stageForecast[0].stage;
+    todayFlowPct = stageForecast[0].flowPct ?? undefined;
+    
+    // Debug logging
+    const anchor = new Date(NATIONAL_LABEL_ANCHOR_KST_ISO);
+    const idx = diffDaysKST(baseDate, anchor);
+    console.log(`🧭 물때 결정 (국가 표준, KST): anchor=${NATIONAL_LABEL_ANCHOR_KST_ISO}, today(KST)=${toKSTMidnight(baseDate).toISOString()}, idx=${idx}, label=${mulTtae}`);
   }
 
   const bundle = {

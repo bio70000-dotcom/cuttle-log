@@ -48,6 +48,13 @@ export const jejuLabels = [
 export const nationalTideLabels = namhaeLabels;
 
 /**
+ * National label anchor date in KST.
+ * This is the reference date (index=0) for the 29-day cycle.
+ * Based on the provided table: 2025-10-29 is "1물" (index 0).
+ */
+export const NATIONAL_LABEL_ANCHOR_KST_ISO = "2025-10-29T00:00:00+09:00";
+
+/**
  * Get national tide label by day index (0..28).
  * @param idx - Day index in the 29-day lunar cycle (0-based)
  * @returns Korean tide stage label (e.g., "1물", "조금")
@@ -94,4 +101,23 @@ export function moonAgeToLabelIndex(moonAgeDays: number): number {
 export function getNationalTideLabelFromMoonAge(moonAgeDays: number): string {
   const idx = moonAgeToLabelIndex(moonAgeDays);
   return getNationalTideLabel(idx);
+}
+
+/**
+ * Get today's tide label based on KST calendar date.
+ * This is the primary method for determining tide labels.
+ * @param today - Date to get label for (defaults to now)
+ * @returns Korean tide stage label (e.g., "1물", "조금")
+ */
+export function getTodayTideLabelKST(today: Date = new Date()): string {
+  // Import dynamically to avoid circular dependencies
+  const { diffDaysKST } = require('./timeKST');
+  
+  const anchor = new Date(NATIONAL_LABEL_ANCHOR_KST_ISO);
+  const idx = diffDaysKST(today, anchor);
+  
+  // Clamp to valid range [0, 28]
+  const safeIdx = Math.max(0, Math.min(28, idx));
+  
+  return nationalTideLabels[safeIdx];
 }
