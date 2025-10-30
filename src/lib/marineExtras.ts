@@ -33,27 +33,21 @@ export function cosineFlowPercent(prevISO: string, nextISO: string, now = Date.n
   return Math.round(y * 100);
 }
 
-// Moon -> tidal stage (물때). Two common mappings; default=A.
-export type MulTtaeMode = 'A' | 'B';
+import { getNationalTideLabelFromMoonAge } from '@/lib/tideLabels';
+
+// Moon -> tidal stage (물때) using national standard labels
+export type MulTtaeMode = 'A' | 'B'; // Kept for backward compatibility
 export function moonToMulTtae(moonPhase01: number | undefined, mode: MulTtaeMode = 'A') {
   if (moonPhase01 == null) return { label: '-', idx: undefined };
   const age = moonPhase01 * 29.530588; // days since new moon
-  // index 1..15 over half cycle (~14.77 days)
+  
+  // Use national standard label system (same for all regions)
+  const label = getNationalTideLabelFromMoonAge(age);
+  
+  // Calculate index (1..15) for backward compatibility
   const idx = Math.min(15, Math.max(1, Math.floor((age / 14.765) * 15) + 1));
-
-  // Special labels around quarter phases vary by region; provide two presets:
-  if (mode === 'A') {
-    // A: "조금" near 1st/3rd quarter (~day 7.4, ~day 22.1), "무시" near day ~15 (neap around smallest range)
-    if (age >= 6.5 && age <= 8.5) return { label: '조금', idx };
-    if (age >= 21 && age <= 23) return { label: '조금', idx };
-    if (age >= 14 && age <= 16) return { label: '무시', idx }; // center of neap
-  } else {
-    // B: "무시" right after 조금 (regional naming)
-    if (age >= 6.5 && age <= 8.5) return { label: '무시', idx };
-    if (age >= 21 && age <= 23) return { label: '무시', idx };
-    if (age >= 13 && age <= 14) return { label: '조금', idx };
-  }
-  return { label: `${idx}물`, idx };
+  
+  return { label, idx };
 }
 
 // Flow percent from list of extreme times (ISO strings)

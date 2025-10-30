@@ -29,16 +29,25 @@ export function insidePolygon(lat:number, lng:number, poly: Array<[number,number
   return inside;
 }
 
-export function resolveRegion(lat:number, lng:number): RegionKey {
-  if (insidePolygon(lat,lng, REGION_POLYGONS.JEJU)) return 'JEJU';
-  if (insidePolygon(lat,lng, REGION_POLYGONS.WEST)) return 'WEST';
-  if (insidePolygon(lat,lng, REGION_POLYGONS.SOUTH)) return 'SOUTH';
-  if (insidePolygon(lat,lng, REGION_POLYGONS.EAST)) return 'EAST';
-  // fallback: decide by coastline proximity (simple heuristic)
-  // west if lng < 127.0, east if lng > 129.5, else south
-  if (lng < 127.0) return 'WEST';
-  if (lng > 129.5) return 'EAST';
-  return 'SOUTH';
+/**
+ * Robust region resolver ensuring Masan (35.2, 128.57) is always classified as SOUTH.
+ * Uses conservative thresholds to prevent misclassification.
+ */
+export function resolveRegion(lat: number, lng: number): RegionKey {
+  // Check Jeju first (southernmost islands)
+  if (lat <= 34.0) return 'JEJU';
+  
+  // Check polygons
+  if (insidePolygon(lat, lng, REGION_POLYGONS.JEJU)) return 'JEJU';
+  if (insidePolygon(lat, lng, REGION_POLYGONS.SOUTH)) return 'SOUTH';
+  if (insidePolygon(lat, lng, REGION_POLYGONS.WEST)) return 'WEST';
+  if (insidePolygon(lat, lng, REGION_POLYGONS.EAST)) return 'EAST';
+  
+  // Fallback: conservative thresholds to ensure proper classification
+  // Masan (35.2, 128.57) must always be SOUTH
+  if (lng < 126.0) return 'WEST';   // West coast (more conservative than 127.0)
+  if (lng >= 129.0) return 'EAST';  // East coast (more conservative than 129.5)
+  return 'SOUTH';                   // Default to SOUTH for central/southern coast (126.0-129.0)
 }
 
 export const REGION_NAMES: Record<RegionKey, string> = {

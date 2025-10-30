@@ -9,7 +9,8 @@ import { resolveStageByRollingMin } from '@/lib/stageResolver';
 import { normalizeRangeRolling } from '@/lib/ampNormalizer';
 import { formatKST } from '@/lib/time';
 import { pickNearestTimeRow } from '@/lib/marineExtras';
-import { stageForRegionUsingNeap } from '@/lib/mulTtae';
+import { moonPhaseToAgeDays } from '@/lib/mulTtae';
+import { getNationalTideLabelFromMoonAge } from '@/lib/tideLabels';
 import { resolveRegion, type RegionKey } from '@/config/regions';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useLocationStore } from '@/stores/locationStore';
@@ -220,14 +221,15 @@ export async function loadMarineBundle(lat?: number, lng?: number): Promise<Mari
   }
 
   // =====================================================
-  //  🌊 Stage Resolution Using Rolling 15-Day Analysis
+  //  🌊 National Tide Label System (Moon-Based)
   // =====================================================
   
   let mulTtae: string | undefined;
   let stageForecast: StageDay[] = [];
   let todayFlowPct: number | undefined;
+  let tideRangeNorm: number | undefined;
 
-  // Process rolling tide data for stage determination
+  // Get amplitude normalization from rolling 15-day tide data
   if (rollingExtremes.status === 'fulfilled' && rollingExtremes.value.length > 0) {
     const extremes = rollingExtremes.value;
     const daily = groupDailyRangeKST(extremes);
@@ -235,80 +237,46 @@ export async function loadMarineBundle(lat?: number, lng?: number): Promise<Mari
     console.log('📊 일별 조석 범위:', daily);
     
     if (daily.length >= 15) {
-      // Determine today's stage using local minima detection
-      const stageResult = resolveStageByRollingMin(daily, today, 15, 2);
-      
-      if (stageResult) {
-        mulTtae = stageResult.label;
-        console.log(`🧭 물때 결정: 앵커(${stageResult.anchorDate})=조금 → 오늘=${mulTtae}`);
-        
-        // Normalize amplitude using rolling 15-day range
-        const tideRangeNorm = normalizeRangeRolling(daily, today);
-        console.log('📏 조석 범위 (롤링 정규화):', tideRangeNorm?.toFixed(2) ?? 'N/A');
-        
-        // Map region to engine format
-        const engineRegion = mapRegionKeyToEngine(region);
-        
-        // Calculate today's flow percentage using the engine
-        todayFlowPct = computeFlowPercent({
-          regionArg: engineRegion,
-          stage: mulTtae,
-          ampSignals: tideRangeNorm != null ? { tideRangeNorm } : undefined
-        });
-        
-        // Generate 7-day forecast using moon phases as supplementary data
-        const phases = moonPhases.status === 'fulfilled' ? moonPhases.value : [];
-        if (phases.length > 0) {
-          stageForecast = phases.map((d, idx) => {
-            // For future days, use neap-based estimation from moon phases
-            const st = stageForRegionUsingNeap(d.phase01, region, station.name);
-            const flowPct = computeFlowPercent({
-              regionArg: engineRegion,
-              stage: st.stage,
-              ampSignals: tideRangeNorm != null ? { tideRangeNorm } : undefined
-            });
-            return { date: d.date, stage: st.stage, flowPct, region };
-          });
-          
-          // Override today's forecast with accurate rolling-based data
-          if (stageForecast[0]) {
-            stageForecast[0].stage = mulTtae;
-            stageForecast[0].flowPct = todayFlowPct ?? null;
-          }
-        }
-      } else {
-        console.warn('⚠️ 물때 결정 실패: 국지 최소값을 찾을 수 없습니다');
-      }
+      // Normalize amplitude using rolling 15-day range
+      tideRangeNorm = normalizeRangeRolling(daily, today);
+      console.log('📏 조석 범위 (롤링 정규화):', tideRangeNorm?.toFixed(2) ?? 'N/A');
     } else {
       console.warn('⚠️ 데이터 부족: 15일 데이터가 필요합니다 (현재:', daily.length, '일)');
+      // Fallback amplitude normalization
+      if (range) tideRangeNorm = Math.min(range / 300, 1.0);
     }
   } else {
     console.error('❌ 롤링 조석 데이터를 불러올 수 없습니다');
+    // Fallback amplitude normalization
+    if (range) tideRangeNorm = Math.min(range / 300, 1.0);
   }
 
-  // Fallback: if rolling analysis failed, use moon phases
-  if (!mulTtae) {
-    const phases = moonPhases.status === 'fulfilled' ? moonPhases.value : [];
-    if (phases.length > 0) {
-      console.log('⚠️ 롤링 분석 실패 → 달 위상 보조 사용');
-      const tideRangeNorm = range ? Math.min(range / 300, 1.0) : undefined;
-      const engineRegion = mapRegionKeyToEngine(region);
+  // Primary: Use national label system based on moon phase
+  const phases = moonPhases.status === 'fulfilled' ? moonPhases.value : [];
+  if (phases.length > 0) {
+    const engineRegion = mapRegionKeyToEngine(region);
+    
+    stageForecast = phases.map((d) => {
+      // Use national label system (same label for all regions on same date)
+      const moonAge = moonPhaseToAgeDays(d.phase01 ?? 0);
+      const stage = getNationalTideLabelFromMoonAge(moonAge);
       
-      stageForecast = phases.map((d) => {
-        const st = stageForRegionUsingNeap(d.phase01, region, station.name);
-        const flowPct = computeFlowPercent({
-          regionArg: engineRegion,
-          stage: st.stage,
-          ampSignals: tideRangeNorm != null ? { tideRangeNorm } : undefined
-        });
-        return { date: d.date, stage: st.stage, flowPct, region };
+      const flowPct = computeFlowPercent({
+        regionArg: engineRegion,
+        stage,
+        ampSignals: tideRangeNorm != null ? { tideRangeNorm } : undefined
       });
       
-      if (stageForecast[0]) {
-        mulTtae = stageForecast[0].stage;
-        todayFlowPct = stageForecast[0].flowPct ?? undefined;
-      }
+      return { date: d.date, stage, flowPct, region };
+    });
+    
+    if (stageForecast[0]) {
+      mulTtae = stageForecast[0].stage;
+      todayFlowPct = stageForecast[0].flowPct ?? undefined;
+      console.log(`🧭 물때 결정 (국가 표준): 오늘=${mulTtae}`);
     }
+  } else {
+    console.warn('⚠️ 달 위상 데이터를 불러올 수 없습니다');
   }
 
   const bundle = {
