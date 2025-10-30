@@ -164,34 +164,6 @@ export function TideCard() {
               </div>
             )}
 
-            {data.stageForecast && data.stageForecast.length > 0 && (
-              <div className="pt-2 border-t">
-                <div className="text-xs text-muted-foreground mb-2">물때/물흐름 (7일)</div>
-                <div className="flex gap-2 overflow-x-auto pb-2">
-                  {data.stageForecast.map((day, idx) => {
-                    const date = new Date(day.date);
-                    const isToday = idx === 0;
-                    return (
-                      <div
-                        key={day.date}
-                        className={`flex-shrink-0 rounded-lg border px-3 py-2 min-w-[80px] ${
-                          isToday ? 'bg-primary/10 border-primary/30' : 'bg-card'
-                        }`}
-                      >
-                        <div className="text-xs font-medium">
-                          {isToday ? '오늘' : `${date.getMonth() + 1}/${date.getDate()}`}
-                        </div>
-                        <div className="text-sm font-semibold mt-1">{day.stage}</div>
-                        <div className="text-xs text-muted-foreground mt-0.5">
-                          {day.flowPct != null ? `${day.flowPct}%` : '-'}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
             <div className="text-xs text-muted-foreground">
               업데이트: {format(new Date(data.updatedAt), 'HH:mm')}
             </div>
