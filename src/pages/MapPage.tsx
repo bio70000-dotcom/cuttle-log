@@ -1,16 +1,17 @@
-import { MapContainer, TileLayer, useMap } from 'react-leaflet';
-import { useState, useRef } from 'react';
-import { Navigation } from 'lucide-react';
-import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import 'leaflet-defaulticon-compatibility';
 import 'leaflet-defaulticon-compatibility/dist/leaflet-defaulticon-compatibility.css';
+import { MapContainer, TileLayer, useMap } from 'react-leaflet';
+import { useState, useRef } from 'react';
+import { Navigation } from 'lucide-react';
+import * as L from 'leaflet';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { useLocationStore } from '@/stores/locationStore';
 import { useWeatherStore } from '@/stores/weatherStore';
 import { useTideStore } from '@/stores/tideStore';
 import { reverseGeocode } from '@/lib/geocoding';
+import ClientOnly from '@/components/ClientOnly';
 
 function LocationButton() {
   const map = useMap();
@@ -95,19 +96,21 @@ function LocationButton() {
 
 export default function MapPage() {
   return (
-    <div className="fixed inset-0 pb-16">
-      <MapContainer 
-        center={[36.5, 127.8]} 
-        zoom={7} 
-        className="h-full w-full"
-        style={{ height: '100%', width: '100%' }}
-      >
-        <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-          url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
-        />
-        <LocationButton />
-      </MapContainer>
+    <div className="fixed inset-0 pb-16" style={{ height: '100%', width: '100%' }}>
+      <ClientOnly>
+        <MapContainer 
+          center={[36.5, 127.8]} 
+          zoom={7} 
+          className="h-full w-full"
+          style={{ height: '100%', width: '100%' }}
+        >
+          <TileLayer
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          />
+          <LocationButton />
+        </MapContainer>
+      </ClientOnly>
     </div>
   );
 }
