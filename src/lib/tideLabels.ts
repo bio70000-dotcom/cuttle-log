@@ -3,6 +3,8 @@
 //  Code: English, UI strings: Korean
 // =====================================================
 
+import { diffDaysKST } from './timeKST';
+
 /**
  * Regional 29-day tide label sequences (one full lunar cycle).
  * These represent the traditional Korean tide stage labels.
@@ -110,9 +112,6 @@ export function getNationalTideLabelFromMoonAge(moonAgeDays: number): string {
  * @returns Korean tide stage label (e.g., "1물", "조금")
  */
 export function getTodayTideLabelKST(today: Date = new Date()): string {
-  // Import dynamically to avoid circular dependencies
-  const { diffDaysKST } = require('./timeKST');
-  
   const anchor = new Date(NATIONAL_LABEL_ANCHOR_KST_ISO);
   const idx = diffDaysKST(today, anchor);
   
