@@ -1,58 +1,51 @@
-export type RegionKey = 'WEST'|'SOUTH'|'EAST'|'JEJU';
+// 4대 권역 판정 유틸
+// 기준은 실사용 좌표 테스트를 우선으로 한 휴리스틱 경계값입니다.
+// 필요 시 임계값만 조정하면 됩니다.
 
-export const REGION_POLYGONS: Record<RegionKey, Array<[number, number]>> = {
-  // [lat, lng] in WGS84. These are coarse geofences (not exact maritime boundaries).
-  WEST: [
-    [38.7, 124.5],[38.7, 126.9],[37.0, 126.9],[36.0, 126.5],[35.2, 126.0],[34.4, 125.0],[33.8, 124.5],[37.5, 124.5]
-  ],
-  SOUTH: [
-    [35.6, 126.0],[35.6, 129.5],[34.5, 129.5],[34.0, 128.5],[33.9, 127.5],[34.2, 126.5],[34.6, 126.0]
-  ],
-  EAST: [
-    [38.8, 129.6],[38.8, 131.0],[36.0, 131.0],[35.6, 129.6],[37.5, 129.6]
-  ],
-  JEJU: [
-    [33.7, 126.0],[33.7, 127.2],[32.8, 127.2],[32.8, 126.0]
-  ]
-};
-
-// Point-in-polygon (ray-casting)
-export function insidePolygon(lat:number, lng:number, poly: Array<[number,number]>){
-  let inside = false;
-  for (let i=0,j=poly.length-1; i<poly.length; j=i++){
-    const [yi, xi] = poly[i]; // lat, lng
-    const [yj, xj] = poly[j];
-    const intersect = ((xi>lng)!==(xj>lng)) &&
-      (lat < (yj-yi)*(lng-xi)/(xj-xi) + yi);
-    if (intersect) inside = !inside;
-  }
-  return inside;
-}
-
-/**
- * Robust region resolver ensuring Masan (35.2, 128.57) is always classified as SOUTH.
- * Uses conservative thresholds to prevent misclassification.
- */
-export function resolveRegion(lat: number, lng: number): RegionKey {
-  // Check Jeju first (southernmost islands)
-  if (lat <= 34.0) return 'JEJU';
-  
-  // Check polygons
-  if (insidePolygon(lat, lng, REGION_POLYGONS.JEJU)) return 'JEJU';
-  if (insidePolygon(lat, lng, REGION_POLYGONS.SOUTH)) return 'SOUTH';
-  if (insidePolygon(lat, lng, REGION_POLYGONS.WEST)) return 'WEST';
-  if (insidePolygon(lat, lng, REGION_POLYGONS.EAST)) return 'EAST';
-  
-  // Fallback: conservative thresholds to ensure proper classification
-  // Masan (35.2, 128.57) must always be SOUTH
-  if (lng < 126.0) return 'WEST';   // West coast (more conservative than 127.0)
-  if (lng >= 129.0) return 'EAST';  // East coast (more conservative than 129.5)
-  return 'SOUTH';                   // Default to SOUTH for central/southern coast (126.0-129.0)
-}
+export type RegionKey = 'WEST' | 'SOUTH' | 'EAST' | 'JEJU'
 
 export const REGION_NAMES: Record<RegionKey, string> = {
   WEST: '서해',
   SOUTH: '남해',
   EAST: '동해',
-  JEJU: '제주'
-};
+  JEJU: '제주',
+}
+
+// 제주도 대략 경계 (제주시~서귀포 포함 넉넉하게)
+const JEJU_BOUNDS = {
+  minLat: 32.8,
+  maxLat: 34.2,
+  minLng: 125.5,
+  maxLng: 127.3,
+}
+
+// 남해/동해/서해 경계 임계값
+const SOUTH_MAX_LAT = 35.3 // 이 남쪽은 남해로 분류
+const EAST_MIN_LNG = 128.0 // 이 동쪽은 동해로 분류
+
+export function resolveRegion(lat: number, lng: number): RegionKey {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return 'WEST'
+
+  // 1) 제주 우선
+  if (
+    lat >= JEJU_BOUNDS.minLat &&
+    lat <= JEJU_BOUNDS.maxLat &&
+    lng >= JEJU_BOUNDS.minLng &&
+    lng <= JEJU_BOUNDS.maxLng
+  ) {
+    return 'JEJU'
+  }
+
+  // 2) 남해 (제주 제외, 저위도)
+  if (lat < SOUTH_MAX_LAT) {
+    return 'SOUTH'
+  }
+
+  // 3) 동해 (고경도)
+  if (lng >= EAST_MIN_LNG) {
+    return 'EAST'
+  }
+
+  // 4) 나머지는 서해
+  return 'WEST'
+}
