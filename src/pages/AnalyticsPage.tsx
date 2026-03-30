@@ -14,11 +14,12 @@ import {
   Line,
   Cell,
 } from 'recharts';
-import { TrendingUp, Clock, Grid2x2, Anchor } from 'lucide-react';
+import { TrendingUp, Clock, Grid2x2, Anchor, Thermometer, Target, Ship } from 'lucide-react';
 
 export default function AnalyticsPage() {
   const events = useLiveQuery(() => db.catchEvents.toArray(), []) || [];
   const trips = useLiveQuery(() => db.trips.toArray(), []) || [];
+  const conditions = useLiveQuery(() => db.conditions.toArray(), []) || [];
   const rigPresets = useLiveQuery(() => db.rigPresets.toArray(), []) || [];
   const egiPresets = useLiveQuery(() => db.egiPresets.toArray(), []) || [];
 
@@ -439,6 +440,118 @@ export default function AnalyticsPage() {
           <div className="mt-2 text-xs text-muted-foreground">
             * 선상 출조 기준, 자리별 평균 조과수
           </div>
+        </Card>
+
+        {/* 수온 구간별 성공률 */}
+        <Card className="p-4">
+          <div className="flex items-center gap-2 mb-4">
+            <Thermometer className="w-4 h-4 text-primary" />
+            <h2 className="font-semibold">수온 구간별 조과</h2>
+          </div>
+          {(() => {
+            const ranges = [
+              { label: '~14°C', min: -Infinity, max: 14 },
+              { label: '14-16', min: 14, max: 16 },
+              { label: '16-18', min: 16, max: 18 },
+              { label: '18-20', min: 18, max: 20 },
+              { label: '20-22', min: 20, max: 22 },
+              { label: '22°C~', min: 22, max: Infinity },
+            ];
+            const tempMap = new Map<number, number>();
+            conditions.forEach(c => { if (c.tripId && c.waterTemp != null) tempMap.set(c.tripId, c.waterTemp); });
+            const data = ranges.map(r => {
+              const count = events.filter(e => {
+                const t = tempMap.get(e.tripId);
+                return t != null && t >= r.min && t < r.max;
+              }).length;
+              return { range: r.label, count };
+            });
+            const hasData = data.some(d => d.count > 0);
+            return hasData ? (
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={data}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="range" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} />
+                  <Tooltip />
+                  <Bar dataKey="count" fill="hsl(var(--chart-3))" name="조과수" radius={[3, 3, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <p className="text-sm text-muted-foreground text-center py-8">수온 데이터가 없습니다</p>
+            );
+          })()}
+        </Card>
+
+        {/* 에기 타입별 성공률 */}
+        <Card className="p-4">
+          <div className="flex items-center gap-2 mb-4">
+            <Target className="w-4 h-4 text-primary" />
+            <h2 className="font-semibold">에기 타입별 조과</h2>
+          </div>
+          {(() => {
+            const TYPE_LABELS: Record<string, string> = { normal: '일반형', seu: '세우형', aji: '애자형' };
+            const slotTypeMap = new Map(egiPresets.map(p => [p.slot, p.egiType]));
+            const typeCounts: Record<string, number> = {};
+            events.forEach(e => {
+              const t = slotTypeMap.get(e.egiSlot);
+              if (t) typeCounts[t] = (typeCounts[t] ?? 0) + 1;
+            });
+            const data = Object.entries(typeCounts).map(([type, count]) => ({
+              type: TYPE_LABELS[type] ?? type,
+              count,
+            })).sort((a, b) => b.count - a.count);
+            return data.length > 0 ? (
+              <ResponsiveContainer width="100%" height={160}>
+                <BarChart layout="vertical" data={data}>
+                  <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                  <XAxis type="number" tick={{ fontSize: 11 }} />
+                  <YAxis dataKey="type" type="category" tick={{ fontSize: 12 }} width={60} />
+                  <Tooltip />
+                  <Bar dataKey="count" fill="hsl(var(--chart-4))" name="조과수" radius={[0, 3, 3, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <p className="text-sm text-muted-foreground text-center py-8">에기 타입 데이터가 없습니다</p>
+            );
+          })()}
+        </Card>
+
+        {/* 선사별 조획 통계 */}
+        <Card className="p-4">
+          <div className="flex items-center gap-2 mb-4">
+            <Ship className="w-4 h-4 text-primary" />
+            <h2 className="font-semibold">선사별 조과 통계</h2>
+          </div>
+          {(() => {
+            const boatTrips = trips.filter(t => t.fishingType === 'boat' && t.boatCompany);
+            const companyMap: Record<string, { total: number; count: number }> = {};
+            boatTrips.forEach(trip => {
+              const name = trip.boatCompany!;
+              const catches = events.filter(e => e.tripId === trip.id).length;
+              companyMap[name] ??= { total: 0, count: 0 };
+              companyMap[name].total += catches;
+              companyMap[name].count += 1;
+            });
+            const data = Object.entries(companyMap).map(([name, { total, count }]) => ({
+              name,
+              avg: count > 0 ? parseFloat((total / count).toFixed(1)) : 0,
+              trips: count,
+            })).sort((a, b) => b.avg - a.avg);
+            return data.length > 0 ? (
+              <ResponsiveContainer width="100%" height={Math.max(160, data.length * 40)}>
+                <BarChart layout="vertical" data={data}>
+                  <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                  <XAxis type="number" tick={{ fontSize: 11 }} />
+                  <YAxis dataKey="name" type="category" tick={{ fontSize: 11 }} width={80} />
+                  <Tooltip formatter={(val: number) => [`${val}수`, '평균 조과']} />
+                  <Bar dataKey="avg" fill="hsl(var(--chart-1))" name="평균 조과" radius={[0, 3, 3, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <p className="text-sm text-muted-foreground text-center py-8">선상 출조 데이터가 없습니다</p>
+            );
+          })()}
         </Card>
 
         {/* Overall Statistics */}

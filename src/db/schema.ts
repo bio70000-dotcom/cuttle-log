@@ -38,10 +38,10 @@ export interface RigPreset {
   name?: string
 
   // LEGACY
-  sinkerDropLength?: string // "10cm" | "15cm" | "20cm" | "custom"
-  branchLineLength?: string // "직결" | "10cm" | "15cm" | "20cm" | "custom"
+  sinkerDropLength?: string
+  branchLineLength?: string
 
-  // NEW
+  // step/custom 모드
   sinkerMode?: 'step' | 'custom'
   sinkerValue?: number
   sinkerPair?: [number, number] | null
@@ -50,6 +50,12 @@ export interface RigPreset {
   branchValue?: number
   branchPair?: [number, number] | null
 
+  // WBS 추가 필드
+  sinkerWeight?: number // 봉돌 무게 (호수)
+  sinkerType?: 'tungsten' | 'lead' // 텅스텐/일반
+  lineStrength?: number // 합사 호수 (0.3~1.0)
+  tackleMethod?: 'direct' | 'branch' // 직결/가지줄
+
   notes?: string
 }
 
@@ -57,9 +63,15 @@ export interface EgiPreset {
   id?: number
   slot: 'A' | 'B' | 'C'
   name?: string
-  size?: string
-  color?: string
-  finish?: string
+  egiType?: 'normal' | 'seu' | 'aji' // 일반형/세우형/애자형
+  brand?: string
+  model?: string
+  size?: string // 호수
+  color?: string // 구체적 색상명
+  colorCategory?: string // 핑크계/오렌지계/레드계/내추럴계/올리브계/야광계/기타
+  weight?: number // 무게 (g)
+  finish?: string // 광택/무광/야광
+  photoThumb?: string // base64 사진
   notes?: string
 }
 
@@ -249,6 +261,22 @@ export class FishingLogDB extends Dexie {
 
     // v5: add isPublic index to spots for community filtering
     this.version(5).stores({
+      trips: '++id, dateStart, spotId, tideStage, fishingType',
+      conditions: '++id, tripId, at',
+      rigPresets: '++id, slot',
+      egiPresets: '++id, slot',
+      catchEvents: '++id, tripId, at, rigSlot, egiSlot, species',
+      trackPoints: '++id, tripId, at',
+      outbox: '++id, createdAt, entityType',
+      settings: '++id, key',
+      spots: '++id, lat, lng, createdAt, isPublic',
+      rodPresets: '++id, slot',
+    })
+
+    // v6: EgiPreset 확장 (egiType/brand/model/colorCategory/weight/photoThumb)
+    //     RigPreset 확장 (sinkerWeight/sinkerType/lineStrength/tackleMethod)
+    //     인덱스 변경 없음, 인터페이스 필드만 추가
+    this.version(6).stores({
       trips: '++id, dateStart, spotId, tideStage, fishingType',
       conditions: '++id, tripId, at',
       rigPresets: '++id, slot',

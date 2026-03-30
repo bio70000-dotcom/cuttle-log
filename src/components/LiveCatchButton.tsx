@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -8,27 +8,44 @@ import { Switch } from '@/components/ui/switch'
 import { db, CatchEvent } from '@/db/schema'
 import { queueForSync } from '@/lib/sync'
 import { compressImage } from '@/lib/imageUtils'
-import { Camera, Fish, X } from 'lucide-react'
-import { toast } from 'sonner'
+import { Camera, Fish, Minus, Plus, X } from 'lucide-react'
+import { cn } from '@/lib/utils'
+
+type Species = 'cuttle' | 'webfoot' | 'bigfin'
+
+const SPECIES_LABELS: Record<Species, string> = {
+  cuttle: '갑오징어',
+  webfoot: '주꾸미',
+  bigfin: '무늬오징어',
+}
+
+interface GpsState {
+  lat: number
+  lng: number
+  accuracy: number
+}
 
 interface LiveCatchButtonProps {
   tripId: number | null
   rigSlot: 'A' | 'B' | 'C'
   egiSlot: 'A' | 'B' | 'C'
-  currentLat?: number
-  currentLng?: number
   conditionId?: number
+  onError?: (msg: string) => void
+  onSuccess?: (msg: string) => void
 }
 
 export function LiveCatchButton({
   tripId,
   rigSlot,
   egiSlot,
-  currentLat,
-  currentLng,
   conditionId,
+  onError,
+  onSuccess,
 }: LiveCatchButtonProps) {
   const [showDetails, setShowDetails] = useState(false)
+  const [gps, setGps] = useState<GpsState | null>(null)
+  const [species, setSpecies] = useState<Species>('cuttle')
+  const [quantity, setQuantity] = useState(1)
   const [formData, setFormData] = useState({
     sizeCm: '',
     weight: '',
@@ -38,70 +55,109 @@ export function LiveCatchButton({
   })
   const [photoThumb, setPhotoThumb] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const watchIdRef = useRef<number | null>(null)
+
+  // Start GPS watch when component mounts
+  useEffect(() => {
+    if (!navigator.geolocation) return
+
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      (pos) => {
+        setGps({
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          accuracy: Math.round(pos.coords.accuracy),
+        })
+      },
+      () => {
+        // GPS error — keep previous gps or remain null
+      },
+      { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 }
+    )
+
+    return () => {
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current)
+      }
+    }
+  }, [])
+
+  const notify = (type: 'success' | 'error', msg: string) => {
+    if (type === 'success') onSuccess?.(msg)
+    else onError?.(msg)
+  }
+
+  const saveCatchEvents = async (overrides?: Partial<CatchEvent>) => {
+    const base: Omit<CatchEvent, 'id'> = {
+      tripId: tripId!,
+      at: new Date(),
+      rigSlot,
+      egiSlot,
+      lat: gps?.lat,
+      lng: gps?.lng,
+      conditionId,
+      species,
+      ...overrides,
+    }
+
+    for (let i = 0; i < quantity; i++) {
+      const id = await db.catchEvents.add({ ...base })
+      await queueForSync('catchEvent', { ...base, id })
+    }
+  }
 
   const handleQuickLog = async () => {
     if (!tripId) {
-      toast.error('출조를 먼저 시작해주세요')
+      notify('error', '출조를 먼저 시작해주세요')
       return
     }
 
     try {
-      if ('vibrate' in navigator) {
-        navigator.vibrate(50)
-      }
-
-      const catchEvent: Omit<CatchEvent, 'id'> = {
-        tripId,
-        at: new Date(),
-        rigSlot,
-        egiSlot,
-        lat: currentLat,
-        lng: currentLng,
-        conditionId,
-      }
-
-      const id = await db.catchEvents.add(catchEvent)
-      await queueForSync('catchEvent', { ...catchEvent, id })
-
-      toast.success(`갑오징어 기록 완료 — ${new Date().toLocaleTimeString('ko-KR')} 단차${rigSlot} · 에기${egiSlot}`)
-    } catch (error) {
-      toast.error('기록 실패. 다시 시도해주세요')
+      if ('vibrate' in navigator) navigator.vibrate(50)
+      await saveCatchEvents()
+      const label = SPECIES_LABELS[species]
+      const timeStr = new Date().toLocaleTimeString('ko-KR')
+      notify(
+        'success',
+        quantity > 1
+          ? `${label} ${quantity}마리 기록 완료 — ${timeStr}`
+          : `${label} 기록 완료 — ${timeStr} 단차${rigSlot} · 에기${egiSlot}`
+      )
+    } catch {
+      notify('error', '기록 실패. 다시 시도해주세요')
     }
   }
 
   const handleDetailedLog = async () => {
     if (!tripId) {
-      toast.error('출조를 먼저 시작해주세요')
+      notify('error', '출조를 먼저 시작해주세요')
       return
     }
 
     try {
-      const catchEvent: Omit<CatchEvent, 'id'> = {
-        tripId,
-        at: new Date(),
-        rigSlot,
-        egiSlot,
-        lat: currentLat,
-        lng: currentLng,
-        conditionId,
+      await saveCatchEvents({
         sizeCm: formData.sizeCm ? parseFloat(formData.sizeCm) : undefined,
         weight: formData.weight ? parseFloat(formData.weight) : undefined,
         kept: formData.kept,
         depth: formData.depth ? parseFloat(formData.depth) : undefined,
         note: formData.note || undefined,
         photoThumb: photoThumb ?? undefined,
-      }
+      })
 
-      const id = await db.catchEvents.add(catchEvent)
-      await queueForSync('catchEvent', { ...catchEvent, id })
-
-      toast.success(formData.sizeCm ? `갑오징어 기록 완료 — ${formData.sizeCm}cm` : '갑오징어 기록 완료')
+      const label = SPECIES_LABELS[species]
+      notify(
+        'success',
+        formData.sizeCm
+          ? `${label} 기록 완료 — ${formData.sizeCm}cm`
+          : `${label} 기록 완료`
+      )
 
       setShowDetails(false)
       setFormData({ sizeCm: '', weight: '', kept: true, depth: '', note: '' })
       setPhotoThumb(null)
-    } catch (error) {
-      toast.error('기록 실패. 다시 시도해주세요')
+      setQuantity(1)
+    } catch {
+      notify('error', '기록 실패. 다시 시도해주세요')
     }
   }
 
@@ -112,14 +168,62 @@ export function LiveCatchButton({
       const compressed = await compressImage(file)
       setPhotoThumb(compressed)
     } catch {
-      toast.error('사진 처리 실패')
+      notify('error', '사진 처리 실패')
     }
-    // Reset input so same file can be re-selected
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
+  const gpsLabel = gps ? `GPS ±${gps.accuracy}m` : 'GPS 대기중...'
+
   return (
     <>
+      {/* Species selector */}
+      <div className="grid grid-cols-3 gap-2">
+        {(Object.entries(SPECIES_LABELS) as [Species, string][]).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setSpecies(key)}
+            className={cn(
+              'h-12 rounded-lg border text-sm font-medium transition-all',
+              species === key
+                ? 'border-primary bg-primary text-primary-foreground'
+                : 'border-border bg-background hover:bg-muted'
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* Quantity counter */}
+      <div className="flex items-center justify-between px-1">
+        <span className="text-sm text-muted-foreground">수량</span>
+        <div className="flex items-center gap-3">
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="h-10 w-10"
+            onClick={() => setQuantity((q) => Math.max(1, q - 1))}
+            disabled={quantity <= 1}
+          >
+            <Minus className="w-4 h-4" />
+          </Button>
+          <span className="w-6 text-center text-base font-semibold">{quantity}</span>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="h-10 w-10"
+            onClick={() => setQuantity((q) => q + 1)}
+          >
+            <Plus className="w-4 h-4" />
+          </Button>
+        </div>
+      </div>
+
+      {/* Main quick-log button */}
       <Button
         size="lg"
         onClick={handleQuickLog}
@@ -131,16 +235,70 @@ export function LiveCatchButton({
         disabled={!tripId}
       >
         <Fish className="w-6 h-6 mr-2" />
-        + 갑오징어 기록
+        + {SPECIES_LABELS[species]} 기록
       </Button>
-      <p className="text-xs text-center text-muted-foreground mt-1">길게 눌러 상세 입력</p>
 
+      <div className="flex justify-between text-xs text-muted-foreground px-1">
+        <span>길게 눌러 상세 입력</span>
+        <span>{gpsLabel}</span>
+      </div>
+
+      {/* Detailed log dialog */}
       <Dialog open={showDetails} onOpenChange={setShowDetails}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>상세 기록</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
+            {/* Species in dialog */}
+            <div>
+              <Label className="text-sm text-muted-foreground mb-2 block">어종</Label>
+              <div className="grid grid-cols-3 gap-2">
+                {(Object.entries(SPECIES_LABELS) as [Species, string][]).map(([key, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setSpecies(key)}
+                    className={cn(
+                      'h-12 rounded-lg border text-sm font-medium transition-all',
+                      species === key
+                        ? 'border-primary bg-primary text-primary-foreground'
+                        : 'border-border bg-background hover:bg-muted'
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Quantity in dialog */}
+            <div className="flex items-center justify-between">
+              <Label>수량</Label>
+              <div className="flex items-center gap-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="h-10 w-10"
+                  onClick={() => setQuantity((q) => Math.max(1, q - 1))}
+                  disabled={quantity <= 1}
+                >
+                  <Minus className="w-4 h-4" />
+                </Button>
+                <span className="w-6 text-center text-base font-semibold">{quantity}</span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="h-10 w-10"
+                  onClick={() => setQuantity((q) => q + 1)}
+                >
+                  <Plus className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label htmlFor="size">크기 (cm)</Label>
@@ -239,6 +397,9 @@ export function LiveCatchButton({
                 className="mt-1"
               />
             </div>
+
+            {/* GPS status in dialog */}
+            <p className="text-xs text-muted-foreground">{gpsLabel}</p>
 
             <Button onClick={handleDetailedLog} className="w-full h-12">
               기록 완료

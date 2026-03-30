@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, Trip } from '@/db/schema'
 import { Button } from '@/components/ui/button'
@@ -13,9 +13,9 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
+import { Textarea } from '@/components/ui/textarea'
 import PresetEditor, { PresetValues } from '@/components/presets/PresetEditor'
 import { cn } from '@/lib/utils'
-import { toast } from 'sonner'
 
 type RigPresetRow = {
   id?: number
@@ -118,12 +118,25 @@ function StartTripDialog({ open, onOpenChange, onStart }: StartTripDialogProps) 
   const [boatCompany, setBoatCompany] = useState('')
   const [boatPosition, setBoatPosition] = useState<BoatPosition | null>(null)
   const [loading, setLoading] = useState(false)
+  const [gps, setGps] = useState<{ lat: number; lng: number; accuracy: number } | null>(null)
+  const [now] = useState(() => new Date())
+
+  useEffect(() => {
+    if (!open || !navigator.geolocation) return
+    const watchId = navigator.geolocation.watchPosition(
+      (pos) => setGps({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: Math.round(pos.coords.accuracy) }),
+      () => {},
+      { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 }
+    )
+    return () => navigator.geolocation.clearWatch(watchId)
+  }, [open])
 
   const reset = () => {
     setFishingType('walking')
     setSpecies(null)
     setBoatCompany('')
     setBoatPosition(null)
+    setGps(null)
   }
 
   const handleStart = async () => {
@@ -133,6 +146,8 @@ function StartTripDialog({ open, onOpenChange, onStart }: StartTripDialogProps) 
       const tripData: Partial<Trip> = {
         fishingType,
         species,
+        lat: gps?.lat,
+        lng: gps?.lng,
         ...(fishingType === 'boat' && {
           boatCompany: boatCompany || undefined,
           boatPosition: boatPosition ?? undefined,
@@ -146,6 +161,9 @@ function StartTripDialog({ open, onOpenChange, onStart }: StartTripDialogProps) 
     }
   }
 
+  const dateStr = now.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' })
+  const timeStr = now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-sm max-h-[85vh] overflow-y-auto">
@@ -154,6 +172,14 @@ function StartTripDialog({ open, onOpenChange, onStart }: StartTripDialogProps) 
         </DialogHeader>
 
         <div className="space-y-5">
+          {/* Date/time + GPS */}
+          <div className="bg-muted rounded-lg p-3 text-sm space-y-1">
+            <div className="font-medium">{dateStr} {timeStr}</div>
+            <div className="text-muted-foreground">
+              {gps ? `GPS ±${gps.accuracy}m (${gps.lat.toFixed(4)}, ${gps.lng.toFixed(4)})` : '위치 확인 중...'}
+            </div>
+          </div>
+
           {/* Fishing type pill toggle */}
           <div>
             <Label className="text-sm text-muted-foreground mb-2 block">낚시 유형</Label>
@@ -252,9 +278,160 @@ function StartTripDialog({ open, onOpenChange, onStart }: StartTripDialogProps) 
 
 // --- HomePage ---
 
+// --- EndTripDialog ---
+
+type SpeciesBreakdownKey = 'cuttle' | 'webfoot' | 'bigfin'
+const SPECIES_BREAKDOWN_LABELS: Record<SpeciesBreakdownKey, string> = {
+  cuttle: '갑오징어',
+  webfoot: '주꾸미',
+  bigfin: '무늬오징어',
+}
+
+interface EndTripDialogProps {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  trip: Trip | null
+  onEnd: (notes: string) => Promise<void>
+}
+
+function EndTripDialog({ open, onOpenChange, trip, onEnd }: EndTripDialogProps) {
+  const [memo, setMemo] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  const catches = useLiveQuery(
+    async () => (trip?.id ? await db.catchEvents.where('tripId').equals(trip.id).toArray() : []),
+    [trip?.id]
+  )
+
+  const breakdown = useMemo(() => {
+    return (catches ?? []).reduce(
+      (acc, c) => {
+        const key = (c.species ?? 'cuttle') as SpeciesBreakdownKey
+        return { ...acc, [key]: acc[key] + 1 }
+      },
+      { cuttle: 0, webfoot: 0, bigfin: 0 } as Record<SpeciesBreakdownKey, number>
+    )
+  }, [catches])
+
+  const total = (catches ?? []).length
+
+  const elapsed = useMemo(() => {
+    if (!trip?.dateStart) return ''
+    const ms = Date.now() - new Date(trip.dateStart).getTime()
+    const h = Math.floor(ms / 3600000)
+    const m = Math.floor((ms % 3600000) / 60000)
+    if (h > 0) return `${h}시간 ${m}분`
+    return `${m}분`
+  }, [trip?.dateStart])
+
+  const startTime = trip?.dateStart
+    ? new Date(trip.dateStart).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
+    : ''
+  const nowTime = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
+
+  const handleEnd = async () => {
+    setLoading(true)
+    try {
+      await onEnd(memo)
+      setMemo('')
+      onOpenChange(false)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>출조 종료</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="bg-muted rounded-lg p-4 space-y-2">
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">출조 시간</span>
+              <span className="font-medium">{startTime} ~ {nowTime} ({elapsed})</span>
+            </div>
+            <Separator />
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">총 조획</span>
+              <span className="text-2xl font-bold">{total}마리</span>
+            </div>
+            {total > 0 && (
+              <>
+                <Separator />
+                {(Object.entries(breakdown) as [SpeciesBreakdownKey, number][])
+                  .filter(([, cnt]) => cnt > 0)
+                  .map(([key, cnt]) => (
+                    <div key={key} className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">{SPECIES_BREAKDOWN_LABELS[key]}</span>
+                      <span className="font-medium">{cnt}마리</span>
+                    </div>
+                  ))}
+              </>
+            )}
+          </div>
+          <div>
+            <Label htmlFor="endMemo">메모 (선택)</Label>
+            <Textarea
+              id="endMemo"
+              value={memo}
+              onChange={(e) => setMemo(e.target.value)}
+              placeholder="오늘 출조 소감을 남겨보세요..."
+              rows={3}
+              className="mt-1"
+            />
+          </div>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              className="flex-1 h-12"
+              onClick={() => onOpenChange(false)}
+              disabled={loading}
+            >
+              취소
+            </Button>
+            <Button
+              onClick={handleEnd}
+              disabled={loading}
+              variant="destructive"
+              className="flex-1 h-12 text-base font-semibold"
+            >
+              종료 확인
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 export default function HomePage() {
   const [presetOpen, setPresetOpen] = useState(false)
   const [tripOpen, setTripOpen] = useState(false)
+  const [endTripOpen, setEndTripOpen] = useState(false)
+  const [toastMsg, setToastMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const showToast = (type: 'success' | 'error', text: string) => {
+    setToastMsg({ type, text })
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
+    toastTimerRef.current = setTimeout(() => setToastMsg(null), 3000)
+  }
+
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
+    }
+  }, [])
+
+  // Detect active trip (started but not ended)
+  const activeTrip = useLiveQuery(async () => {
+    const trips = await db.trips.orderBy('dateStart').reverse().limit(1).toArray()
+    const latest = trips[0]
+    if (latest && !latest.dateEnd) return latest
+    return null
+  })
 
   const rigPreset = useLiveQuery(async () => {
     return await db.rigPresets.where('slot').equals(TARGET_SLOT).first()
@@ -289,28 +466,75 @@ export default function HomePage() {
     } else {
       await db.rigPresets.add({ slot: TARGET_SLOT, ...dexiePatch })
     }
-    toast.success('프리셋 저장 완료')
+    showToast('success', '프리셋 저장 완료')
     setPresetOpen(false)
   }
 
   const handleStartTrip = async (tripData: Partial<Trip>) => {
-    const id = await db.trips.add({
+    await db.trips.add({
       dateStart: new Date(),
       ...tripData,
     } as Trip)
-    toast.success('출조가 시작되었습니다')
-    return id
+    showToast('success', '출조가 시작되었습니다')
+  }
+
+  const handleEndTrip = async (notes: string) => {
+    if (!activeTrip?.id) return
+    await db.trips.update(activeTrip.id, {
+      dateEnd: new Date(),
+      notes: notes || undefined,
+    })
+    showToast('success', '출조가 종료되었습니다')
   }
 
   return (
     <div className="p-4 space-y-6">
-      {/* Start Trip CTA */}
-      <Button
-        onClick={() => setTripOpen(true)}
-        className="w-full h-14 text-base font-semibold"
-      >
-        출조 시작
-      </Button>
+      {/* Simple inline toast */}
+      {toastMsg && (
+        <div
+          className={cn(
+            'fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-3 rounded-lg shadow-lg text-sm font-medium max-w-xs w-full text-center',
+            toastMsg.type === 'success'
+              ? 'bg-green-600 text-white'
+              : 'bg-destructive text-destructive-foreground'
+          )}
+        >
+          {toastMsg.text}
+        </div>
+      )}
+
+      {/* Trip CTA — start or end */}
+      {activeTrip ? (
+        <div className="space-y-3">
+          <div className="bg-primary/10 rounded-lg p-3 text-sm">
+            <span className="text-muted-foreground">출조 진행 중 — </span>
+            <span className="font-medium">
+              {SPECIES_LABELS[activeTrip.species as Species] ?? ''}
+              {activeTrip.fishingType === 'boat' ? ' (선상)' : ' (워킹)'}
+            </span>
+          </div>
+          <Button
+            onClick={() => setEndTripOpen(true)}
+            variant="destructive"
+            className="w-full h-14 text-base font-semibold"
+          >
+            출조 종료
+          </Button>
+          <EndTripDialog
+            open={endTripOpen}
+            onOpenChange={setEndTripOpen}
+            trip={activeTrip}
+            onEnd={handleEndTrip}
+          />
+        </div>
+      ) : (
+        <Button
+          onClick={() => setTripOpen(true)}
+          className="w-full h-14 text-base font-semibold"
+        >
+          출조 시작
+        </Button>
+      )}
 
       <StartTripDialog
         open={tripOpen}

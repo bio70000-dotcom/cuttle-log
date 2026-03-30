@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, RigPreset, EgiPreset, RodPreset } from '@/db/schema'
 import { Button } from '@/components/ui/button'
@@ -8,12 +8,15 @@ import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
-import { ArrowLeft, Save } from 'lucide-react'
+import { ArrowLeft, Camera, Save, X } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
+import { compressImage } from '@/lib/imageUtils'
 
 const ROD_LENGTH_OPTIONS = [6.6, 7.0, 7.6, 8.0, 8.6, 9.0, 9.6]
 const ROD_BRANDS = ['다이와', '시마노', '아부가르시아', '바낙스', '메이저크래프트']
+const EGI_BRANDS = ['야마시타', '요즈리', '듀엘', '에기왕', '세프티아', '스퀴드매니아']
+const COLOR_CATEGORIES = ['핑크계', '오렌지계', '레드계', '내추럴계', '올리브계', '야광계', '기타']
 
 // --- Rig Preset Section ---
 
@@ -21,11 +24,18 @@ function RigPresetSection() {
   const [selectedSlot, setSelectedSlot] = useState<'A' | 'B' | 'C'>('A')
   const rigPresets = useLiveQuery(() => db.rigPresets.toArray(), []) || []
 
+  const [sinkerType, setSinkerType] = useState<string>('lead')
+  const [tackleMethod, setTackleMethod] = useState<string>('direct')
+
   const currentRig = rigPresets.find((p) => p.slot === selectedSlot) || {
     slot: selectedSlot,
     name: '',
     sinkerDropLength: '15cm',
     branchLineLength: '10cm',
+    sinkerWeight: undefined,
+    sinkerType: 'lead' as const,
+    lineStrength: undefined,
+    tackleMethod: 'direct' as const,
     notes: '',
   }
 
@@ -64,8 +74,12 @@ function RigPresetSection() {
           const formData = new FormData(e.currentTarget)
           handleSaveRig({
             name: formData.get('rigName') as string,
+            sinkerWeight: formData.get('sinkerWeight') ? Number(formData.get('sinkerWeight')) : undefined,
+            sinkerType: sinkerType as 'tungsten' | 'lead',
+            lineStrength: formData.get('lineStrength') ? Number(formData.get('lineStrength')) : undefined,
+            tackleMethod: tackleMethod as 'direct' | 'branch',
             sinkerDropLength: formData.get('sinkerDrop') as string,
-            branchLineLength: formData.get('branchLine') as string,
+            branchLineLength: tackleMethod === 'branch' ? formData.get('branchLine') as string : '직결',
             notes: formData.get('rigNotes') as string,
           })
         }}
@@ -80,6 +94,58 @@ function RigPresetSection() {
               placeholder="예: 표준형"
               className="h-12 mt-1"
             />
+          </div>
+
+          <div>
+            <Label htmlFor="sinkerWeight">봉돌 무게 (호)</Label>
+            <Input
+              id="sinkerWeight"
+              name="sinkerWeight"
+              type="number"
+              defaultValue={currentRig.sinkerWeight}
+              placeholder="예: 15"
+              className="h-12 mt-1"
+            />
+          </div>
+
+          <div>
+            <Label className="mb-2 block">봉돌 종류</Label>
+            <ToggleGroup
+              type="single"
+              value={sinkerType}
+              onValueChange={(v) => v && setSinkerType(v)}
+              className="grid grid-cols-2 gap-2"
+            >
+              <ToggleGroupItem value="tungsten" className="h-12">텅스텐</ToggleGroupItem>
+              <ToggleGroupItem value="lead" className="h-12">일반 (납)</ToggleGroupItem>
+            </ToggleGroup>
+          </div>
+
+          <div>
+            <Label htmlFor="lineStrength">합사 호수</Label>
+            <Select name="lineStrength" defaultValue={currentRig.lineStrength?.toString()}>
+              <SelectTrigger className="h-12 mt-1">
+                <SelectValue placeholder="합사 선택" />
+              </SelectTrigger>
+              <SelectContent>
+                {[0.3, 0.4, 0.5, 0.6, 0.8, 1.0].map((v) => (
+                  <SelectItem key={v} value={String(v)}>{v}호</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div>
+            <Label className="mb-2 block">채비 방식</Label>
+            <ToggleGroup
+              type="single"
+              value={tackleMethod}
+              onValueChange={(v) => v && setTackleMethod(v)}
+              className="grid grid-cols-2 gap-2"
+            >
+              <ToggleGroupItem value="direct" className="h-12">직결</ToggleGroupItem>
+              <ToggleGroupItem value="branch" className="h-12">가지줄</ToggleGroupItem>
+            </ToggleGroup>
           </div>
 
           <div>
@@ -98,21 +164,22 @@ function RigPresetSection() {
             </Select>
           </div>
 
-          <div>
-            <Label htmlFor="branchLine">가지줄단차</Label>
-            <Select name="branchLine" defaultValue={currentRig.branchLineLength}>
-              <SelectTrigger className="h-12 mt-1">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="직결">직결</SelectItem>
-                <SelectItem value="10cm">10cm</SelectItem>
-                <SelectItem value="15cm">15cm</SelectItem>
-                <SelectItem value="20cm">20cm</SelectItem>
-                <SelectItem value="25cm">25cm</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+          {tackleMethod === 'branch' && (
+            <div className="animate-in slide-in-from-top-2 duration-200">
+              <Label htmlFor="branchLine">가지줄 길이</Label>
+              <Select name="branchLine" defaultValue={currentRig.branchLineLength}>
+                <SelectTrigger className="h-12 mt-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="10cm">10cm</SelectItem>
+                  <SelectItem value="15cm">15cm</SelectItem>
+                  <SelectItem value="20cm">20cm</SelectItem>
+                  <SelectItem value="25cm">25cm</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           <div>
             <Label htmlFor="rigNotes">메모</Label>
@@ -140,15 +207,21 @@ function RigPresetSection() {
 
 function EgiPresetSection() {
   const [selectedSlot, setSelectedSlot] = useState<'A' | 'B' | 'C'>('A')
+  const [egiType, setEgiType] = useState<string>('normal')
+  const [finish, setFinish] = useState<string>('광택')
+  const [photoThumb, setPhotoThumb] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const egiPresets = useLiveQuery(() => db.egiPresets.toArray(), []) || []
 
-  const currentEgi = egiPresets.find((p) => p.slot === selectedSlot) || {
-    slot: selectedSlot,
-    name: '',
-    size: '3.0',
-    color: '핑크',
-    finish: '광택',
-    notes: '',
+  const currentEgi = egiPresets.find((p) => p.slot === selectedSlot)
+
+  // Sync state when slot changes
+  const loadedSlotRef = useRef(selectedSlot)
+  if (loadedSlotRef.current !== selectedSlot) {
+    loadedSlotRef.current = selectedSlot
+    setEgiType(currentEgi?.egiType ?? 'normal')
+    setFinish(currentEgi?.finish ?? '광택')
+    setPhotoThumb(currentEgi?.photoThumb ?? null)
   }
 
   const handleSaveEgi = async (preset: Partial<EgiPreset>) => {
@@ -160,9 +233,21 @@ function EgiPresetSection() {
         await db.egiPresets.add({ ...preset, slot: selectedSlot } as EgiPreset)
       }
       toast.success('에기 프리셋 저장 완료')
-    } catch (error) {
+    } catch {
       toast.error('저장 실패')
     }
+  }
+
+  const handlePhotoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    try {
+      const compressed = await compressImage(file)
+      setPhotoThumb(compressed)
+    } catch {
+      toast.error('사진 처리 실패')
+    }
+    if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
   return (
@@ -183,84 +268,115 @@ function EgiPresetSection() {
       <form
         onSubmit={(e) => {
           e.preventDefault()
-          const formData = new FormData(e.currentTarget)
+          const fd = new FormData(e.currentTarget)
           handleSaveEgi({
-            name: formData.get('egiName') as string,
-            size: formData.get('egiSize') as string,
-            color: formData.get('egiColor') as string,
-            finish: formData.get('egiFinish') as string,
-            notes: formData.get('egiNotes') as string,
+            name: fd.get('egiName') as string,
+            egiType: egiType as EgiPreset['egiType'],
+            brand: fd.get('egiBrand') as string,
+            model: fd.get('egiModel') as string,
+            size: fd.get('egiSize') as string,
+            color: fd.get('egiColor') as string,
+            colorCategory: fd.get('egiColorCat') as string,
+            weight: fd.get('egiWeight') ? Number(fd.get('egiWeight')) : undefined,
+            finish,
+            photoThumb: photoThumb ?? undefined,
+            notes: fd.get('egiNotes') as string,
           })
         }}
       >
         <div className="space-y-4">
           <div>
             <Label htmlFor="egiName">프리셋 이름</Label>
-            <Input
-              id="egiName"
-              name="egiName"
-              defaultValue={currentEgi.name}
-              placeholder="예: 주간용"
-              className="h-12 mt-1"
-            />
+            <Input id="egiName" name="egiName" defaultValue={currentEgi?.name} placeholder="예: 주간용" className="h-12 mt-1" />
           </div>
 
           <div>
-            <Label htmlFor="egiSize">사이즈</Label>
-            <Select name="egiSize" defaultValue={currentEgi.size}>
-              <SelectTrigger className="h-12 mt-1">
-                <SelectValue />
-              </SelectTrigger>
+            <Label className="mb-2 block">에기 유형</Label>
+            <ToggleGroup type="single" value={egiType} onValueChange={(v) => v && setEgiType(v)} className="grid grid-cols-3 gap-2">
+              <ToggleGroupItem value="normal" className="h-12">일반형</ToggleGroupItem>
+              <ToggleGroupItem value="seu" className="h-12">세우형</ToggleGroupItem>
+              <ToggleGroupItem value="aji" className="h-12">애자형</ToggleGroupItem>
+            </ToggleGroup>
+          </div>
+
+          <div>
+            <Label htmlFor="egiBrand">브랜드</Label>
+            <Input id="egiBrand" name="egiBrand" list="egi-brand-list" defaultValue={currentEgi?.brand} placeholder="예: 야마시타" className="h-12 mt-1" />
+            <datalist id="egi-brand-list">
+              {EGI_BRANDS.map((b) => <option key={b} value={b} />)}
+            </datalist>
+          </div>
+
+          <div>
+            <Label htmlFor="egiModel">모델명</Label>
+            <Input id="egiModel" name="egiModel" defaultValue={currentEgi?.model} placeholder="예: 에기왕 라이브" className="h-12 mt-1" />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label htmlFor="egiSize">크기 (호)</Label>
+              <Select name="egiSize" defaultValue={currentEgi?.size ?? '3.0'}>
+                <SelectTrigger className="h-12 mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {['1.5', '1.8', '2.0', '2.5', '3.0', '3.5', '4.0'].map((v) => (
+                    <SelectItem key={v} value={v}>{v}호</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label htmlFor="egiWeight">무게 (g)</Label>
+              <Input id="egiWeight" name="egiWeight" type="number" defaultValue={currentEgi?.weight} placeholder="선택" className="h-12 mt-1" />
+            </div>
+          </div>
+
+          <div>
+            <Label htmlFor="egiColor">색상명</Label>
+            <Input id="egiColor" name="egiColor" defaultValue={currentEgi?.color} placeholder="예: 골드오렌지" className="h-12 mt-1" />
+          </div>
+
+          <div>
+            <Label htmlFor="egiColorCat">색상 분류</Label>
+            <Select name="egiColorCat" defaultValue={currentEgi?.colorCategory}>
+              <SelectTrigger className="h-12 mt-1"><SelectValue placeholder="분류 선택" /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="2.5">2.5호</SelectItem>
-                <SelectItem value="3.0">3.0호</SelectItem>
-                <SelectItem value="3.5">3.5호</SelectItem>
-                <SelectItem value="4.0">4.0호</SelectItem>
+                {COLOR_CATEGORIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
 
           <div>
-            <Label htmlFor="egiColor">색상</Label>
-            <Select name="egiColor" defaultValue={currentEgi.color}>
-              <SelectTrigger className="h-12 mt-1">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="핑크">핑크</SelectItem>
-                <SelectItem value="오렌지">오렌지</SelectItem>
-                <SelectItem value="네온">네온</SelectItem>
-                <SelectItem value="야광">야광</SelectItem>
-                <SelectItem value="흰색">흰색</SelectItem>
-                <SelectItem value="검정">검정</SelectItem>
-              </SelectContent>
-            </Select>
+            <Label className="mb-2 block">마감</Label>
+            <ToggleGroup type="single" value={finish} onValueChange={(v) => v && setFinish(v)} className="grid grid-cols-3 gap-2">
+              <ToggleGroupItem value="광택" className="h-12">광택</ToggleGroupItem>
+              <ToggleGroupItem value="무광" className="h-12">무광</ToggleGroupItem>
+              <ToggleGroupItem value="야광" className="h-12">야광</ToggleGroupItem>
+            </ToggleGroup>
           </div>
 
           <div>
-            <Label htmlFor="egiFinish">마감</Label>
-            <Select name="egiFinish" defaultValue={currentEgi.finish}>
-              <SelectTrigger className="h-12 mt-1">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="광택">광택</SelectItem>
-                <SelectItem value="무광">무광</SelectItem>
-                <SelectItem value="야광">야광</SelectItem>
-              </SelectContent>
-            </Select>
+            <Label>사진</Label>
+            <div className="mt-1">
+              {photoThumb ? (
+                <div className="relative inline-block">
+                  <img src={photoThumb} alt="egi" className="w-24 h-24 object-cover rounded-lg border" />
+                  <button type="button" onClick={() => setPhotoThumb(null)} className="absolute -top-2 -right-2 bg-destructive text-destructive-foreground rounded-full w-5 h-5 flex items-center justify-center" aria-label="삭제">
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ) : (
+                <label htmlFor="egi-photo" className="flex flex-col items-center justify-center w-24 h-24 border-2 border-dashed border-border rounded-lg cursor-pointer hover:bg-muted transition-colors">
+                  <Camera className="w-6 h-6 text-muted-foreground" />
+                  <span className="text-xs text-muted-foreground mt-1">사진</span>
+                </label>
+              )}
+              <input ref={fileInputRef} id="egi-photo" type="file" accept="image/*" capture="environment" className="hidden" onChange={handlePhotoSelect} />
+            </div>
           </div>
 
           <div>
             <Label htmlFor="egiNotes">메모</Label>
-            <Textarea
-              id="egiNotes"
-              name="egiNotes"
-              defaultValue={currentEgi.notes}
-              placeholder="예: 맑은 날 사용"
-              rows={2}
-              className="mt-1"
-            />
+            <Textarea id="egiNotes" name="egiNotes" defaultValue={currentEgi?.notes} placeholder="예: 맑은 날 사용" rows={2} className="mt-1" />
           </div>
 
           <Button type="submit" className="w-full h-12">
