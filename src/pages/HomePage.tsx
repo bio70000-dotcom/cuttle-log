@@ -1,94 +1,39 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db, Trip } from '@/db/schema'
+import {
+  db,
+  Trip,
+  ConditionSnapshot,
+  RigPreset,
+  EgiPreset,
+  CatchEvent,
+} from '@/db/schema'
+import { TodayBar } from '@/components/TodayBar'
+import { ConditionsSnapshot } from '@/components/ConditionsSnapshot'
+import { PresetSlots } from '@/components/PresetSlots'
+import { LiveCatchButton } from '@/components/LiveCatchButton'
+import { RecentEvents } from '@/components/RecentEvents'
+import { MiniInsight } from '@/components/MiniInsight'
+import { WeatherCard } from '@/components/WeatherCard'
+import { TideCard } from '@/components/TideCard'
+import { useGeolocation } from '@/hooks/useGeolocation'
+import { queueForSync } from '@/lib/sync'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import { Textarea } from '@/components/ui/textarea'
-import PresetEditor, { PresetValues } from '@/components/presets/PresetEditor'
 import { cn } from '@/lib/utils'
+import { toast } from 'sonner'
+import { MapPin, Plus } from 'lucide-react'
 
-type RigPresetRow = {
-  id?: number
-  slot: 'A' | 'B' | 'C'
-  name?: string
-  sinkerMode?: 'step' | 'custom'
-  sinkerValue?: number | null
-  sinkerPair?: [number, number] | null
-  branchMode?: 'step' | 'custom'
-  branchValue?: number | null
-  branchPair?: [number, number] | null
-  notes?: string
-}
-
-const TARGET_SLOT: RigPresetRow['slot'] = 'A'
-
-function rowToValues(row?: RigPresetRow | null): PresetValues {
-  if (!row) {
-    return {
-      sinkerStepType: 'step',
-      sinkerStepValue: 0,
-      branchLenType: 'step',
-      branchLenValue: 0,
-    }
-  }
-  return {
-    sinkerStepType: row.sinkerMode ?? 'step',
-    sinkerStepValue:
-      (row.sinkerMode ?? 'step') === 'step' ? (row.sinkerValue ?? undefined) : undefined,
-    sinkerCustomPair:
-      (row.sinkerMode ?? 'step') === 'custom' ? (row.sinkerPair ?? undefined) : undefined,
-    branchLenType: row.branchMode ?? 'step',
-    branchLenValue:
-      (row.branchMode ?? 'step') === 'step' ? (row.branchValue ?? undefined) : undefined,
-    branchLenCustomPair:
-      (row.branchMode ?? 'step') === 'custom' ? (row.branchPair ?? undefined) : undefined,
-  }
-}
-
-function valuesToPartialRow(v: PresetValues): Partial<RigPresetRow> {
-  return {
-    sinkerMode: v.sinkerStepType,
-    sinkerValue: v.sinkerStepType === 'step' ? (v.sinkerStepValue ?? 0) : undefined,
-    sinkerPair: v.sinkerStepType === 'custom' ? (v.sinkerCustomPair ?? [0, 0]) : null,
-    branchMode: v.branchLenType,
-    branchValue: v.branchLenType === 'step' ? (v.branchLenValue ?? 0) : undefined,
-    branchPair: v.branchLenType === 'custom' ? (v.branchLenCustomPair ?? [0, 0]) : null,
-  }
-}
-
-function pretty(row?: RigPresetRow | null) {
-  const sinker =
-    row?.sinkerMode === 'custom'
-      ? row.sinkerPair
-        ? `${row.sinkerPair[0]} / ${row.sinkerPair[1]} cm`
-        : '-'
-      : row?.sinkerValue != null
-        ? `${row.sinkerValue} cm`
-        : '-'
-
-  const branch =
-    row?.branchMode === 'custom'
-      ? row.branchPair
-        ? `${row.branchPair[0]} / ${row.branchPair[1]} cm`
-        : '-'
-      : row?.branchValue != null
-        ? `${row.branchValue} cm`
-        : '-'
-
-  return { sinker, branch }
-}
-
-// --- StartTripDialog ---
+// --- Types ---
 
 type FishingType = 'walking' | 'boat'
 type Species = 'cuttle' | 'webfoot' | 'bigfin'
@@ -105,6 +50,8 @@ const BOAT_POSITION_LABELS: Record<BoatPosition, string> = {
   middle: '가운데',
   stern: '선미',
 }
+
+// --- StartTripDialog ---
 
 interface StartTripDialogProps {
   open: boolean
@@ -143,7 +90,7 @@ function StartTripDialog({ open, onOpenChange, onStart }: StartTripDialogProps) 
     if (!species) return
     setLoading(true)
     try {
-      const tripData: Partial<Trip> = {
+      await onStart({
         fishingType,
         species,
         lat: gps?.lat,
@@ -152,8 +99,7 @@ function StartTripDialog({ open, onOpenChange, onStart }: StartTripDialogProps) 
           boatCompany: boatCompany || undefined,
           boatPosition: boatPosition ?? undefined,
         }),
-      }
-      await onStart(tripData)
+      })
       reset()
       onOpenChange(false)
     } finally {
@@ -170,9 +116,7 @@ function StartTripDialog({ open, onOpenChange, onStart }: StartTripDialogProps) 
         <DialogHeader>
           <DialogTitle>출조 시작</DialogTitle>
         </DialogHeader>
-
         <div className="space-y-5">
-          {/* Date/time + GPS */}
           <div className="bg-muted rounded-lg p-3 text-sm space-y-1">
             <div className="font-medium">{dateStr} {timeStr}</div>
             <div className="text-muted-foreground">
@@ -180,94 +124,54 @@ function StartTripDialog({ open, onOpenChange, onStart }: StartTripDialogProps) 
             </div>
           </div>
 
-          {/* Fishing type pill toggle */}
           <div>
             <Label className="text-sm text-muted-foreground mb-2 block">낚시 유형</Label>
             <div className="bg-muted rounded-full p-1 flex gap-1">
               {(['walking', 'boat'] as const).map((type) => (
-                <button
-                  key={type}
-                  type="button"
-                  onClick={() => setFishingType(type)}
-                  className={cn(
-                    'flex-1 rounded-full py-2 text-sm font-medium transition-all',
-                    fishingType === type
-                      ? 'bg-background shadow text-foreground'
-                      : 'text-muted-foreground hover:text-foreground'
-                  )}
-                >
+                <button key={type} type="button" onClick={() => setFishingType(type)}
+                  className={cn('flex-1 rounded-full py-2 text-sm font-medium transition-all',
+                    fishingType === type ? 'bg-background shadow text-foreground' : 'text-muted-foreground hover:text-foreground')}>
                   {type === 'walking' ? '워킹' : '선상'}
                 </button>
               ))}
             </div>
           </div>
 
-          {/* Species selector */}
           <div>
             <Label className="text-sm text-muted-foreground mb-2 block">어종</Label>
             <div className="grid grid-cols-3 gap-2">
               {(Object.entries(SPECIES_LABELS) as [Species, string][]).map(([key, label]) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => setSpecies(key)}
-                  className={cn(
-                    'h-14 rounded-lg border text-sm font-medium transition-all',
-                    species === key
-                      ? 'border-primary bg-primary text-primary-foreground'
-                      : 'border-border bg-background hover:bg-muted'
-                  )}
-                >
+                <button key={key} type="button" onClick={() => setSpecies(key)}
+                  className={cn('h-14 rounded-lg border text-sm font-medium transition-all',
+                    species === key ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-background hover:bg-muted')}>
                   {label}
                 </button>
               ))}
             </div>
           </div>
 
-          {/* Boat section (conditional) */}
           {fishingType === 'boat' && (
             <div className="space-y-3 animate-in slide-in-from-top-2 duration-200">
               <div>
                 <Label htmlFor="boatCompany">선사명</Label>
-                <Input
-                  id="boatCompany"
-                  value={boatCompany}
-                  onChange={(e) => setBoatCompany(e.target.value)}
-                  placeholder="선사명 입력"
-                  className="h-12 mt-1"
-                />
+                <Input id="boatCompany" value={boatCompany} onChange={(e) => setBoatCompany(e.target.value)} placeholder="선사명 입력" className="h-12 mt-1" />
               </div>
-
               <div>
                 <Label className="text-sm text-muted-foreground mb-2 block">좌석 위치</Label>
                 <div className="grid grid-cols-3 gap-2">
-                  {(Object.entries(BOAT_POSITION_LABELS) as [BoatPosition, string][]).map(
-                    ([key, label]) => (
-                      <button
-                        key={key}
-                        type="button"
-                        onClick={() => setBoatPosition(key)}
-                        className={cn(
-                          'h-12 rounded-lg border text-sm font-medium transition-all',
-                          boatPosition === key
-                            ? 'border-primary bg-primary text-primary-foreground'
-                            : 'border-border bg-background hover:bg-muted'
-                        )}
-                      >
-                        {label}
-                      </button>
-                    )
-                  )}
+                  {(Object.entries(BOAT_POSITION_LABELS) as [BoatPosition, string][]).map(([key, label]) => (
+                    <button key={key} type="button" onClick={() => setBoatPosition(key)}
+                      className={cn('h-12 rounded-lg border text-sm font-medium transition-all',
+                        boatPosition === key ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-background hover:bg-muted')}>
+                      {label}
+                    </button>
+                  ))}
                 </div>
               </div>
             </div>
           )}
 
-          <Button
-            onClick={handleStart}
-            disabled={!species || loading}
-            className="w-full h-14 text-base font-semibold"
-          >
+          <Button onClick={handleStart} disabled={!species || loading} className="w-full h-14 text-base font-semibold">
             출조 시작
           </Button>
         </div>
@@ -276,25 +180,14 @@ function StartTripDialog({ open, onOpenChange, onStart }: StartTripDialogProps) 
   )
 }
 
-// --- HomePage ---
-
 // --- EndTripDialog ---
 
-type SpeciesBreakdownKey = 'cuttle' | 'webfoot' | 'bigfin'
-const SPECIES_BREAKDOWN_LABELS: Record<SpeciesBreakdownKey, string> = {
-  cuttle: '갑오징어',
-  webfoot: '주꾸미',
-  bigfin: '무늬오징어',
-}
-
-interface EndTripDialogProps {
+function EndTripDialog({ open, onOpenChange, trip, onEnd }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   trip: Trip | null
   onEnd: (notes: string) => Promise<void>
-}
-
-function EndTripDialog({ open, onOpenChange, trip, onEnd }: EndTripDialogProps) {
+}) {
   const [memo, setMemo] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -303,49 +196,39 @@ function EndTripDialog({ open, onOpenChange, trip, onEnd }: EndTripDialogProps) 
     [trip?.id]
   )
 
+  const total = (catches ?? []).length
+
   const breakdown = useMemo(() => {
     return (catches ?? []).reduce(
       (acc, c) => {
-        const key = (c.species ?? 'cuttle') as SpeciesBreakdownKey
-        return { ...acc, [key]: acc[key] + 1 }
+        const key = (c.species ?? 'cuttle') as Species
+        return { ...acc, [key]: (acc[key] ?? 0) + 1 }
       },
-      { cuttle: 0, webfoot: 0, bigfin: 0 } as Record<SpeciesBreakdownKey, number>
+      {} as Record<string, number>
     )
   }, [catches])
-
-  const total = (catches ?? []).length
 
   const elapsed = useMemo(() => {
     if (!trip?.dateStart) return ''
     const ms = Date.now() - new Date(trip.dateStart).getTime()
     const h = Math.floor(ms / 3600000)
     const m = Math.floor((ms % 3600000) / 60000)
-    if (h > 0) return `${h}시간 ${m}분`
-    return `${m}분`
+    return h > 0 ? `${h}시간 ${m}분` : `${m}분`
   }, [trip?.dateStart])
 
-  const startTime = trip?.dateStart
-    ? new Date(trip.dateStart).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
-    : ''
+  const startTime = trip?.dateStart ? new Date(trip.dateStart).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }) : ''
   const nowTime = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
 
   const handleEnd = async () => {
     setLoading(true)
-    try {
-      await onEnd(memo)
-      setMemo('')
-      onOpenChange(false)
-    } finally {
-      setLoading(false)
-    }
+    try { await onEnd(memo); setMemo(''); onOpenChange(false) }
+    finally { setLoading(false) }
   }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-sm">
-        <DialogHeader>
-          <DialogTitle>출조 종료</DialogTitle>
-        </DialogHeader>
+        <DialogHeader><DialogTitle>출조 종료</DialogTitle></DialogHeader>
         <div className="space-y-4">
           <div className="bg-muted rounded-lg p-4 space-y-2">
             <div className="flex justify-between text-sm">
@@ -353,52 +236,29 @@ function EndTripDialog({ open, onOpenChange, trip, onEnd }: EndTripDialogProps) 
               <span className="font-medium">{startTime} ~ {nowTime} ({elapsed})</span>
             </div>
             <Separator />
-            <div className="flex justify-between text-sm">
+            <div className="flex justify-between items-center text-sm">
               <span className="text-muted-foreground">총 조획</span>
               <span className="text-2xl font-bold">{total}마리</span>
             </div>
             {total > 0 && (
               <>
                 <Separator />
-                {(Object.entries(breakdown) as [SpeciesBreakdownKey, number][])
-                  .filter(([, cnt]) => cnt > 0)
-                  .map(([key, cnt]) => (
-                    <div key={key} className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">{SPECIES_BREAKDOWN_LABELS[key]}</span>
-                      <span className="font-medium">{cnt}마리</span>
-                    </div>
-                  ))}
+                {Object.entries(breakdown).filter(([, cnt]) => cnt > 0).map(([key, cnt]) => (
+                  <div key={key} className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">{SPECIES_LABELS[key as Species] ?? key}</span>
+                    <span className="font-medium">{cnt}마리</span>
+                  </div>
+                ))}
               </>
             )}
           </div>
           <div>
-            <Label htmlFor="endMemo">메모 (선택)</Label>
-            <Textarea
-              id="endMemo"
-              value={memo}
-              onChange={(e) => setMemo(e.target.value)}
-              placeholder="오늘 출조 소감을 남겨보세요..."
-              rows={3}
-              className="mt-1"
-            />
+            <Label htmlFor="endMemo">메모</Label>
+            <Textarea id="endMemo" value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="오늘 출조 소감..." rows={3} className="mt-1" />
           </div>
           <div className="flex gap-2">
-            <Button
-              variant="outline"
-              className="flex-1 h-12"
-              onClick={() => onOpenChange(false)}
-              disabled={loading}
-            >
-              취소
-            </Button>
-            <Button
-              onClick={handleEnd}
-              disabled={loading}
-              variant="destructive"
-              className="flex-1 h-12 text-base font-semibold"
-            >
-              종료 확인
-            </Button>
+            <Button variant="outline" className="flex-1 h-12" onClick={() => onOpenChange(false)} disabled={loading}>취소</Button>
+            <Button onClick={handleEnd} disabled={loading} variant="destructive" className="flex-1 h-12 text-base font-semibold">종료 확인</Button>
           </div>
         </div>
       </DialogContent>
@@ -406,231 +266,137 @@ function EndTripDialog({ open, onOpenChange, trip, onEnd }: EndTripDialogProps) 
   )
 }
 
+// --- HomePage (대시보드 레이아웃 복원 + 신규 다이얼로그 통합) ---
+
 export default function HomePage() {
-  const [presetOpen, setPresetOpen] = useState(false)
-  const [tripOpen, setTripOpen] = useState(false)
+  const { position } = useGeolocation()
+  const [activeRigSlot, setActiveRigSlot] = useState<'A' | 'B' | 'C'>('A')
+  const [activeEgiSlot, setActiveEgiSlot] = useState<'A' | 'B' | 'C'>('A')
+  const [tripDialogOpen, setTripDialogOpen] = useState(false)
   const [endTripOpen, setEndTripOpen] = useState(false)
-  const [toastMsg, setToastMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const showToast = (type: 'success' | 'error', text: string) => {
-    setToastMsg({ type, text })
-    if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
-    toastTimerRef.current = setTimeout(() => setToastMsg(null), 3000)
-  }
+  // 현재 진행중 Trip
+  const currentTrip = useLiveQuery(async () => {
+    const trips = await db.trips.toArray()
+    return trips.filter((t) => !t.dateEnd).sort((a, b) => new Date(b.dateStart).getTime() - new Date(a.dateStart).getTime())[0] ?? null
+  }, []) as Trip | null
 
-  useEffect(() => {
-    return () => {
-      if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
-    }
-  }, [])
+  const rigPresets = useLiveQuery(() => db.rigPresets.toArray(), []) as RigPreset[] | undefined
+  const egiPresets = useLiveQuery(() => db.egiPresets.toArray(), []) as EgiPreset[] | undefined
 
-  // Detect active trip (started but not ended)
-  const activeTrip = useLiveQuery(async () => {
-    const trips = await db.trips.orderBy('dateStart').reverse().limit(1).toArray()
-    const latest = trips[0]
-    if (latest && !latest.dateEnd) return latest
-    return null
-  })
+  const recentEvents = useLiveQuery(async () => {
+    const arr = await db.catchEvents.toArray()
+    return arr.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime()).slice(0, 10)
+  }, []) as CatchEvent[] | undefined
 
-  const rigPreset = useLiveQuery(async () => {
-    return await db.rigPresets.where('slot').equals(TARGET_SLOT).first()
-  }, [])
+  const allEvents = useLiveQuery(() => db.catchEvents.toArray(), []) as CatchEvent[] | undefined
+  const allConditions = useLiveQuery(() => db.conditions.toArray(), []) as ConditionSnapshot[] | undefined
 
-  useEffect(() => {
-    ;(async () => {
-      const exists = await db.rigPresets.where('slot').equals(TARGET_SLOT).first()
-      if (!exists) {
-        await db.rigPresets.add({
-          slot: TARGET_SLOT,
-          name: '슬롯 A',
-          sinkerMode: 'step',
-          sinkerValue: 0,
-          branchMode: 'step',
-          branchValue: 0,
-        })
-      }
-    })().catch(console.error)
-  }, [])
+  const latestCondition: ConditionSnapshot | null = useMemo(() => {
+    if (!currentTrip?.id || !allConditions?.length) return null
+    const mine = allConditions.filter((c) => c.tripId === currentTrip.id)
+    if (mine.length === 0) return null
+    return mine.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())[0]
+  }, [currentTrip?.id, allConditions])
 
-  const values = useMemo(() => rowToValues(rigPreset ?? undefined), [rigPreset])
-  const view = useMemo(() => pretty(rigPreset ?? undefined), [rigPreset])
-
-  const handleSavePreset = async (v: PresetValues) => {
-    const patch = valuesToPartialRow(v)
-    // Cast: null values are accepted by Dexie at runtime for clearing fields
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const dexiePatch = patch as any
-    if (rigPreset?.id) {
-      await db.rigPresets.update(rigPreset.id, dexiePatch)
-    } else {
-      await db.rigPresets.add({ slot: TARGET_SLOT, ...dexiePatch })
-    }
-    showToast('success', '프리셋 저장 완료')
-    setPresetOpen(false)
-  }
-
+  // 출조 시작 (StartTripDialog에서 호출)
   const handleStartTrip = async (tripData: Partial<Trip>) => {
-    await db.trips.add({
+    const base: Trip = {
       dateStart: new Date(),
+      lat: tripData.lat ?? position?.lat,
+      lng: tripData.lng ?? position?.lng,
       ...tripData,
-    } as Trip)
-    showToast('success', '출조가 시작되었습니다')
+    }
+    const id = await db.trips.add(base)
+    await queueForSync('trip', { action: 'start', id, ...base })
+    toast.success('출조가 시작되었습니다')
   }
 
+  // TodayBar에서 직접 출조 시작 (간편)
+  const handleQuickStartTrip = async () => {
+    setTripDialogOpen(true)
+  }
+
+  // 출조 종료
   const handleEndTrip = async (notes: string) => {
-    if (!activeTrip?.id) return
-    await db.trips.update(activeTrip.id, {
-      dateEnd: new Date(),
-      notes: notes || undefined,
-    })
-    showToast('success', '출조가 종료되었습니다')
+    if (!currentTrip?.id) return
+    const dateEnd = new Date()
+    await db.trips.update(currentTrip.id, { dateEnd, notes: notes || undefined })
+    await queueForSync('trip', { action: 'end', id: currentTrip.id, dateEnd })
+    toast.success('출조가 종료되었습니다')
+  }
+
+  // TodayBar에서 종료 버튼 클릭
+  const handleTodayBarEndTrip = async () => {
+    setEndTripOpen(true)
   }
 
   return (
-    <div className="p-4 space-y-6">
-      {/* Simple inline toast */}
-      {toastMsg && (
-        <div
-          className={cn(
-            'fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-3 rounded-lg shadow-lg text-sm font-medium max-w-xs w-full text-center',
-            toastMsg.type === 'success'
-              ? 'bg-green-600 text-white'
-              : 'bg-destructive text-destructive-foreground'
-          )}
-        >
-          {toastMsg.text}
-        </div>
-      )}
+    <div className="min-h-screen bg-background pb-20 px-4 md:px-6 max-w-5xl mx-auto">
+      <div className="pt-3 flex flex-col gap-3 md:gap-4">
+        {/* TodayBar — 위치, 동기화, 출조 시작/종료 */}
+        <TodayBar
+          currentTrip={currentTrip}
+          onStartTrip={handleQuickStartTrip}
+          onEndTrip={handleTodayBarEndTrip}
+          onSelectSpot={() => { window.location.href = '/map?focus=me' }}
+        />
 
-      {/* Trip CTA — start or end */}
-      {activeTrip ? (
-        <div className="space-y-3">
-          <div className="bg-primary/10 rounded-lg p-3 text-sm">
-            <span className="text-muted-foreground">출조 진행 중 — </span>
-            <span className="font-medium">
-              {SPECIES_LABELS[activeTrip.species as Species] ?? ''}
-              {activeTrip.fishingType === 'boat' ? ' (선상)' : ' (워킹)'}
-            </span>
-          </div>
-          <Button
-            onClick={() => setEndTripOpen(true)}
-            variant="destructive"
-            className="w-full h-14 text-base font-semibold"
-          >
-            출조 종료
+        {/* 빠른 실행 */}
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+          <Button onClick={() => { window.location.href = '/map?focus=me' }} className="w-full" size="lg" variant="secondary">
+            <MapPin className="w-4 h-4 mr-2" /> 포인트 선택
           </Button>
-          <EndTripDialog
-            open={endTripOpen}
-            onOpenChange={setEndTripOpen}
-            trip={activeTrip}
-            onEnd={handleEndTrip}
+
+          <LiveCatchButton
+            tripId={currentTrip?.id ?? null}
+            rigSlot={activeRigSlot}
+            egiSlot={activeEgiSlot}
           />
+
+          <Button onClick={() => { window.location.href = '/presets' }} className="w-full" size="lg" variant="outline">
+            <Plus className="w-4 h-4 mr-2" /> 프리셋 편집
+          </Button>
         </div>
-      ) : (
-        <Button
-          onClick={() => setTripOpen(true)}
-          className="w-full h-14 text-base font-semibold"
-        >
-          출조 시작
-        </Button>
-      )}
 
-      <StartTripDialog
-        open={tripOpen}
-        onOpenChange={setTripOpen}
-        onStart={handleStartTrip}
-      />
+        {/* 현황 스냅샷 */}
+        <ConditionsSnapshot
+          condition={latestCondition}
+          lastFetched={latestCondition?.at}
+          onRefresh={() => toast.info('조건 갱신: API 연동 후 자동 갱신됩니다')}
+          onEdit={() => toast.info('수동 입력 기능은 곧 추가됩니다')}
+        />
 
-      {/* Preset card */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-lg">현재 프리셋 (슬롯 {TARGET_SLOT})</CardTitle>
-          <Dialog open={presetOpen} onOpenChange={setPresetOpen}>
-            <DialogTrigger asChild>
-              <Button size="sm" variant="outline">
-                프리셋 편집
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-2xl">
-              <DialogHeader>
-                <DialogTitle>프리셋 편집</DialogTitle>
-              </DialogHeader>
-              <PresetEditor
-                initial={values}
-                stepRange={{ min: 0, max: 200 }}
-                onSave={handleSavePreset}
-                onCancel={() => setPresetOpen(false)}
-              />
-            </DialogContent>
-          </Dialog>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-6">
-            <div>
-              <Label className="text-sm text-muted-foreground">봉돌단차</Label>
-              <div className="text-base">{view.sinker}</div>
-            </div>
-            <div>
-              <Label className="text-sm text-muted-foreground">가지줄길이</Label>
-              <div className="text-base">{view.branch}</div>
-            </div>
+        {/* 날씨 / 물때 */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+          <WeatherCard />
+          <TideCard />
+        </div>
+
+        {/* 프리셋 슬롯 */}
+        <PresetSlots
+          rigPresets={rigPresets ?? []}
+          egiPresets={egiPresets ?? []}
+          activeRigSlot={activeRigSlot}
+          activeEgiSlot={activeEgiSlot}
+          onRigSlotChange={setActiveRigSlot}
+          onEgiSlotChange={setActiveEgiSlot}
+        />
+
+        {/* 최근 이벤트 & 미니 인사이트 */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="lg:col-span-2">
+            <RecentEvents events={recentEvents ?? []} rigPresets={rigPresets ?? []} egiPresets={egiPresets ?? []} />
           </div>
-          <Separator />
-          <p className="text-sm text-muted-foreground">
-            * 5cm 단위 또는 사용자 지정(숫자 2개)을 지원합니다.
-          </p>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">출조 세팅 (프리셋 적용 예시)</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <PresetConsumerDemo
-            sinkerMode={rigPreset?.sinkerMode ?? 'step'}
-            sinkerValue={rigPreset?.sinkerValue ?? 0}
-            sinkerPair={rigPreset?.sinkerPair ?? null}
-            branchMode={rigPreset?.branchMode ?? 'step'}
-            branchValue={rigPreset?.branchValue ?? 0}
-            branchPair={rigPreset?.branchPair ?? null}
-          />
-        </CardContent>
-      </Card>
-    </div>
-  )
-}
-
-function PresetConsumerDemo(props: {
-  sinkerMode: 'step' | 'custom'
-  sinkerValue: number
-  sinkerPair: [number, number] | null
-  branchMode: 'step' | 'custom'
-  branchValue: number
-  branchPair: [number, number] | null
-}) {
-  const sinkerNumbers =
-    props.sinkerMode === 'custom'
-      ? (props.sinkerPair ?? [0, 0])
-      : [props.sinkerValue, props.sinkerValue]
-
-  const branchNumbers =
-    props.branchMode === 'custom'
-      ? (props.branchPair ?? [0, 0])
-      : [props.branchValue, props.branchValue]
-
-  return (
-    <div className="text-sm">
-      <div>
-        적용 봉돌단차(cm): {sinkerNumbers[0]} / {sinkerNumbers[1]}
+          <div>
+            <MiniInsight events={allEvents ?? []} conditions={allConditions ?? []} currentTideStage={currentTrip?.tideStage} />
+          </div>
+        </div>
       </div>
-      <div>
-        적용 가지줄길이(cm): {branchNumbers[0]} / {branchNumbers[1]}
-      </div>
-      <p className="text-muted-foreground mt-2">
-        * custom이면 두 값을 모두 사용, step이면 단일 값을 복제해 사용합니다.
-      </p>
+
+      {/* Dialogs */}
+      <StartTripDialog open={tripDialogOpen} onOpenChange={setTripDialogOpen} onStart={handleStartTrip} />
+      <EndTripDialog open={endTripOpen} onOpenChange={setEndTripOpen} trip={currentTrip} onEnd={handleEndTrip} />
     </div>
   )
 }
