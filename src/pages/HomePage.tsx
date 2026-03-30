@@ -331,10 +331,91 @@ export default function HomePage() {
     setEndTripOpen(true)
   }
 
+  // 출조 중 캐치 카운트
+  const tripCatchCount = useLiveQuery(
+    async () => (currentTrip?.id ? await db.catchEvents.where('tripId').equals(currentTrip.id).count() : 0),
+    [currentTrip?.id]
+  )
+
+  const tripElapsed = useMemo(() => {
+    if (!currentTrip?.dateStart) return ''
+    const ms = Date.now() - new Date(currentTrip.dateStart).getTime()
+    const h = Math.floor(ms / 3600000)
+    const m = Math.floor((ms % 3600000) / 60000)
+    return h > 0 ? `${h}시간 ${m}분` : `${m}분`
+  }, [currentTrip?.dateStart])
+
+  // ─── 출조 중: 심플 캐치 모드 ───
+  if (currentTrip) {
+    return (
+      <div className="min-h-screen bg-background pb-20 px-4 max-w-lg mx-auto">
+        <div className="pt-4 flex flex-col gap-4">
+          {/* 상단 상태바 */}
+          <div className="bg-primary/10 border border-primary/20 rounded-xl p-4">
+            <div className="flex justify-between items-center mb-2">
+              <span className="text-sm font-semibold text-primary">
+                출조 진행 중
+              </span>
+              <span className="text-xs text-muted-foreground">{tripElapsed}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-muted-foreground">
+                {SPECIES_LABELS[currentTrip.species as Species] ?? ''}
+                {currentTrip.fishingType === 'boat' ? ' · 선상' : ' · 워킹'}
+                {currentTrip.boatCompany ? ` · ${currentTrip.boatCompany}` : ''}
+              </span>
+              <span className="text-3xl font-bold">{tripCatchCount ?? 0}<span className="text-sm font-normal text-muted-foreground ml-1">마리</span></span>
+            </div>
+          </div>
+
+          {/* 프리셋 슬롯 선택 (컴팩트) */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs text-muted-foreground mb-1 block">단차</Label>
+              <div className="flex gap-1">
+                {(['A', 'B', 'C'] as const).map((slot) => (
+                  <Button key={slot} variant={activeRigSlot === slot ? 'default' : 'outline'}
+                    className="flex-1 h-10 text-sm" onClick={() => setActiveRigSlot(slot)}>
+                    {slot}
+                  </Button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <Label className="text-xs text-muted-foreground mb-1 block">에기</Label>
+              <div className="flex gap-1">
+                {(['A', 'B', 'C'] as const).map((slot) => (
+                  <Button key={slot} variant={activeEgiSlot === slot ? 'default' : 'outline'}
+                    className="flex-1 h-10 text-sm" onClick={() => setActiveEgiSlot(slot)}>
+                    {slot}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* 메인 캐치 버튼 */}
+          <LiveCatchButton
+            tripId={currentTrip.id ?? null}
+            rigSlot={activeRigSlot}
+            egiSlot={activeEgiSlot}
+          />
+
+          {/* 출조 종료 */}
+          <Button onClick={() => setEndTripOpen(true)} variant="outline" className="w-full h-12 text-muted-foreground">
+            출조 종료
+          </Button>
+        </div>
+
+        <EndTripDialog open={endTripOpen} onOpenChange={setEndTripOpen} trip={currentTrip} onEnd={handleEndTrip} />
+      </div>
+    )
+  }
+
+  // ─── 대시보드 모드 (출조 미진행) ───
   return (
     <div className="min-h-screen bg-background pb-20 px-4 md:px-6 max-w-5xl mx-auto">
       <div className="pt-3 flex flex-col gap-3 md:gap-4">
-        {/* TodayBar — 위치, 동기화, 출조 시작/종료 */}
         <TodayBar
           currentTrip={currentTrip}
           onStartTrip={handleQuickStartTrip}
@@ -347,13 +428,6 @@ export default function HomePage() {
           <Button onClick={() => { window.location.href = '/map?focus=me' }} className="w-full" size="lg" variant="secondary">
             <MapPin className="w-4 h-4 mr-2" /> 포인트 선택
           </Button>
-
-          <LiveCatchButton
-            tripId={currentTrip?.id ?? null}
-            rigSlot={activeRigSlot}
-            egiSlot={activeEgiSlot}
-          />
-
           <Button onClick={() => { window.location.href = '/presets' }} className="w-full" size="lg" variant="outline">
             <Plus className="w-4 h-4 mr-2" /> 프리셋 편집
           </Button>
@@ -389,14 +463,12 @@ export default function HomePage() {
             <RecentEvents events={recentEvents ?? []} rigPresets={rigPresets ?? []} egiPresets={egiPresets ?? []} />
           </div>
           <div>
-            <MiniInsight events={allEvents ?? []} conditions={allConditions ?? []} currentTideStage={currentTrip?.tideStage} />
+            <MiniInsight events={allEvents ?? []} conditions={allConditions ?? []} currentTideStage={undefined} />
           </div>
         </div>
       </div>
 
-      {/* Dialogs */}
       <StartTripDialog open={tripDialogOpen} onOpenChange={setTripDialogOpen} onStart={handleStartTrip} />
-      <EndTripDialog open={endTripOpen} onOpenChange={setEndTripOpen} trip={currentTrip} onEnd={handleEndTrip} />
     </div>
   )
 }
