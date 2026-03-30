@@ -14,7 +14,7 @@ import { toKSTMidnight, diffDaysKST } from '@/lib/timeKST';
 import { resolveRegion, type RegionKey } from '@/config/regions';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useLocationStore } from '@/stores/locationStore';
-import { KHOA_API_KEY } from '@/lib/config';
+import { getKhoaApiKey } from '@/lib/config';
 import { getFlowRate, mapRegionKeyToEngine } from '@/lib/tidalFlowEngine';
 
 // =====================================================
@@ -92,10 +92,11 @@ export type MarineBundle = {
 };
 
 async function fetchKHOASST(stationCode: string, yyyymmdd: string): Promise<number | undefined> {
-  if (!KHOA_API_KEY) return undefined;
+  const apiKey = getKhoaApiKey()
+  if (!apiKey) return undefined;
 
   const url = new URL('/khoaapi/oceangrid/waterTempObs/search.do', window.location.origin);
-  url.searchParams.set('ServiceKey', KHOA_API_KEY);
+  url.searchParams.set('ServiceKey', apiKey);
   url.searchParams.set('ObsCode', stationCode);
   url.searchParams.set('Date', yyyymmdd);
   url.searchParams.set('ResultType', 'json');

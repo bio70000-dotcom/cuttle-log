@@ -1,7 +1,7 @@
 // cspell: words KHOA khoa oceangrid JEJU ULLEUNG DOKDO
 
 import stations from '@/data/khoaStations.json'
-import { KHOA_API_KEY } from '@/lib/config'
+import { getKhoaApiKey } from '@/lib/config'
 import { toKST, formatKST } from '@/lib/time'
 import { khoaUrl, fetchJson } from '@/lib/khoa'
 import { classifyRegion, KRegion } from '@/utils/region'
@@ -135,7 +135,7 @@ export async function fetchTideExtremes(
   stationCode: string,
   yyyymmdd: string
 ): Promise<{ highs: TideExtreme[]; lows: TideExtreme[] }> {
-  const key = KHOA_API_KEY
+  const key = getKhoaApiKey()
   if (!key) throw new Error('KHOA API 키가 설정되지 않았습니다')
 
   const url = khoaUrl('/api/oceangrid/tideObsPreTab/search.do', {

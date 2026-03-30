@@ -43,6 +43,9 @@ import { useTrackStore, TrackPoint } from '@/stores/trackStore'
 import { reverseGeocode } from '@/lib/geocoding'
 import { resolveRegion, REGION_NAMES } from '@/config/regions'
 import { findNearestStation } from '@/lib/tideExtreme'
+import CatchMarkerLayer from '@/components/map/CatchMarkerLayer'
+import MapFilterDrawer from '@/components/map/MapFilterDrawer'
+import { MapFilterState, DEFAULT_FILTER } from '@/types/mapFilter'
 
 /* ===================== 유틸/공통 ===================== */
 
@@ -226,6 +229,9 @@ export default function MapPage() {
 
   // 🔧 디버그 패널 상태 (누락 보완)
   const [showDebug, setShowDebug] = useState(false)
+
+  // 조과 마커 필터 상태
+  const [catchFilter, setCatchFilter] = useState<MapFilterState>(DEFAULT_FILTER)
 
   // GPS 자동 보정 1회
   const [autoLocated, setAutoLocated] = useState(false)
@@ -709,7 +715,13 @@ export default function MapPage() {
           {/* 선택 마커와 상호작용 */}
           <InteractiveMarker position={{ lat, lng }} onChange={onChangeByMap} />
           <LocateControl onLocated={onChangeByMap} />
+
+          {/* 조과 마커 레이어 */}
+          <CatchMarkerLayer filter={catchFilter} />
         </MapContainer>
+
+        {/* 필터 드로어 (지도 위 절대 위치) */}
+        <MapFilterDrawer filter={catchFilter} onChange={setCatchFilter} />
       </ClientOnly>
     </div>
   )

@@ -1,119 +1,152 @@
-import Dexie, { Table } from 'dexie';
+import Dexie, { Table } from 'dexie'
 
-// Type definitions
 export interface Trip {
-  id?: number;
-  dateStart: Date;
-  dateEnd?: Date;
-  spotId?: string;
-  spotName?: string;
-  lat?: number;
-  lng?: number;
-  tideStage?: number; // 1-12
-  tideHighTimes?: string[];
-  tideLowTimes?: string[];
-  notes?: string;
+  id?: number
+  dateStart: Date
+  dateEnd?: Date
+  spotId?: string
+  spotName?: string
+  lat?: number
+  lng?: number
+  tideStage?: number // 1-12
+  tideHighTimes?: string[]
+  tideLowTimes?: string[]
+  notes?: string
+  fishingType?: 'walking' | 'boat'
+  boatCompany?: string
+  boatPosition?: 'bow' | 'stern' | 'middle'
+  species?: 'cuttle' | 'webfoot' | 'bigfin'
 }
 
 export interface ConditionSnapshot {
-  id?: number;
-  tripId: number;
-  at: Date;
-  waterTemp?: number;
-  windDir?: string;
-  windSpeed?: number;
-  waveHeight?: number;
-  clouds?: number;
-  currentStrength?: string;
-  waterColor?: string;
+  id?: number
+  tripId: number
+  at: Date
+  waterTemp?: number
+  windDir?: string
+  windSpeed?: number
+  waveHeight?: number
+  clouds?: number
+  currentStrength?: string
+  waterColor?: string
 }
 
+/** RigPreset: step/custom + pair 저장 지원 */
 export interface RigPreset {
-  id?: number;
-  slot: 'A' | 'B' | 'C';
-  name?: string;
-  sinkerDropLength?: string; // 10cm / 15cm / 20cm / custom
-  branchLineLength?: string; // 직결 / 10cm / 15cm / 20cm / custom
-  notes?: string;
+  id?: number
+  slot: 'A' | 'B' | 'C'
+  name?: string
+
+  // LEGACY
+  sinkerDropLength?: string // "10cm" | "15cm" | "20cm" | "custom"
+  branchLineLength?: string // "직결" | "10cm" | "15cm" | "20cm" | "custom"
+
+  // NEW
+  sinkerMode?: 'step' | 'custom'
+  sinkerValue?: number
+  sinkerPair?: [number, number] | null
+
+  branchMode?: 'step' | 'custom'
+  branchValue?: number
+  branchPair?: [number, number] | null
+
+  notes?: string
 }
 
 export interface EgiPreset {
-  id?: number;
-  slot: 'A' | 'B' | 'C';
-  name?: string;
-  size?: string; // 2.5 / 3.0 / custom
-  color?: string; // 핑크 / 오렌지 / 네온 / 야광 / custom
-  finish?: string; // 광택 / 무광 / 야광
-  notes?: string;
+  id?: number
+  slot: 'A' | 'B' | 'C'
+  name?: string
+  size?: string
+  color?: string
+  finish?: string
+  notes?: string
 }
 
 export interface TrackPoint {
-  id?: number;
-  tripId: number;
-  at: Date;
-  lat: number;
-  lng: number;
-  accuracy?: number;
-  conditionId?: number;
+  id?: number
+  tripId: number
+  at: Date
+  lat: number
+  lng: number
+  accuracy?: number
+  conditionId?: number
 }
 
 export interface CatchEvent {
-  id?: number;
-  tripId: number;
-  at: Date;
-  spotId?: string;
-  lat?: number;
-  lng?: number;
-  rigSlot: 'A' | 'B' | 'C';
-  egiSlot: 'A' | 'B' | 'C';
-  sizeCm?: number;
-  weight?: number;
-  kept?: boolean;
-  photoThumb?: string; // base64 or blob URL
-  depth?: number;
-  note?: string;
-  conditionId?: number;
+  id?: number
+  tripId: number
+  at: Date
+  spotId?: string
+  lat?: number
+  lng?: number
+  rigSlot: 'A' | 'B' | 'C'
+  egiSlot: 'A' | 'B' | 'C'
+  sizeCm?: number
+  weight?: number
+  kept?: boolean
+  photoThumb?: string
+  depth?: number
+  note?: string
+  conditionId?: number
+  species?: 'cuttle' | 'webfoot' | 'bigfin'
 }
 
 export interface Outbox {
-  id?: number;
-  entityType: string;
-  payload: any;
-  createdAt: Date;
-  tryCount: number;
-  lastError?: string;
+  id?: number
+  entityType: string
+  payload: unknown // any 금지 → unknown
+  createdAt: Date
+  tryCount: number
+  lastError?: string
 }
 
 export interface Spot {
-  id?: number;
-  name?: string;
-  lat: number;
-  lng: number;
-  waterType?: string;
-  notes?: string;
-  createdAt: Date;
+  id?: number
+  name?: string
+  lat: number
+  lng: number
+  waterType?: string
+  notes?: string
+  createdAt: Date
+  isPublic?: boolean
+  userId?: string
+}
+
+export interface RodPreset {
+  id?: number
+  slot: 'A' | 'B' | 'C'
+  brand?: string
+  model?: string
+  lengthFt?: number
+  action?: 'fast' | 'medium' | 'slow'
+  power?: 'UL' | 'L' | 'ML' | 'M' | 'MH'
+  egiRange?: string
+  notes?: string
 }
 
 export interface AppSettings {
-  id?: number;
-  key: string;
-  value: string;
+  id?: number
+  key: string
+  value: string
 }
 
-// Dexie database
 export class FishingLogDB extends Dexie {
-  trips!: Table<Trip>;
-  conditions!: Table<ConditionSnapshot>;
-  rigPresets!: Table<RigPreset>;
-  egiPresets!: Table<EgiPreset>;
-  catchEvents!: Table<CatchEvent>;
-  trackPoints!: Table<TrackPoint>;
-  outbox!: Table<Outbox>;
-  settings!: Table<AppSettings>;
-  spots!: Table<Spot>;
+  trips!: Table<Trip>
+  conditions!: Table<ConditionSnapshot>
+  rigPresets!: Table<RigPreset>
+  egiPresets!: Table<EgiPreset>
+  catchEvents!: Table<CatchEvent>
+  trackPoints!: Table<TrackPoint>
+  outbox!: Table<Outbox>
+  settings!: Table<AppSettings>
+  spots!: Table<Spot>
+  rodPresets!: Table<RodPreset>
 
   constructor() {
-    super('FishingLogDB');
+    super('FishingLogDB')
+
+    // v2: 기존 인덱스
     this.version(2).stores({
       trips: '++id, dateStart, spotId, tideStage',
       conditions: '++id, tripId, at',
@@ -124,8 +157,110 @@ export class FishingLogDB extends Dexie {
       outbox: '++id, createdAt, entityType',
       settings: '++id, key',
       spots: '++id, lat, lng, createdAt',
-    });
+    })
+
+    // v3: 데이터 마이그레이션만(인덱스 동일)
+    this.version(3)
+      .stores({
+        trips: '++id, dateStart, spotId, tideStage',
+        conditions: '++id, tripId, at',
+        rigPresets: '++id, slot',
+        egiPresets: '++id, slot',
+        catchEvents: '++id, tripId, at, rigSlot, egiSlot',
+        trackPoints: '++id, tripId, at',
+        outbox: '++id, createdAt, entityType',
+        settings: '++id, key',
+        spots: '++id, lat, lng, createdAt',
+      })
+      .upgrade(async (tx) => {
+        const table = tx.table<RigPreset>('rigPresets')
+
+        const toNumber = (s?: string | null): number | undefined => {
+          if (!s) return undefined
+          const m = s.match(/(-?\d+)\s*cm/i)
+          if (m) return parseInt(m[1], 10)
+          return undefined
+        }
+
+        await table.toCollection().modify((rec) => {
+          // 봉돌단차
+          rec.sinkerMode ??= 'step'
+          if (rec.sinkerDropLength) {
+            const s = rec.sinkerDropLength.trim()
+            if (s.toLowerCase() === 'custom') {
+              rec.sinkerMode = 'custom'
+              rec.sinkerPair ??= [0, 0]
+              rec.sinkerValue = undefined
+            } else {
+              const n = toNumber(s)
+              if (Number.isFinite(n)) {
+                rec.sinkerMode = 'step'
+                rec.sinkerValue = n as number
+                rec.sinkerPair = null
+              }
+            }
+          } else {
+            if (rec.sinkerMode === 'step') rec.sinkerValue ??= 0
+            if (rec.sinkerMode === 'custom') rec.sinkerPair ??= [0, 0]
+          }
+
+          // 가지줄길이 (레거시: branchLineLength)
+          rec.branchMode ??= 'step'
+          if (rec.branchLineLength) {
+            const s = rec.branchLineLength.trim()
+            if (s === '직결') {
+              rec.branchMode = 'step'
+              rec.branchValue = 0
+              rec.branchPair = null
+            } else if (s.toLowerCase() === 'custom') {
+              rec.branchMode = 'custom'
+              rec.branchPair ??= [0, 0]
+              rec.branchValue = undefined
+            } else {
+              const n = toNumber(s)
+              if (Number.isFinite(n)) {
+                rec.branchMode = 'step'
+                rec.branchValue = n as number
+                rec.branchPair = null
+              }
+            }
+          } else {
+            if (rec.branchMode === 'step') rec.branchValue ??= 0
+            if (rec.branchMode === 'custom') rec.branchPair ??= [0, 0]
+          }
+        })
+      })
+
+    // v4: fishingType/species/boatCompany/boatPosition on trips,
+    //     species on catchEvents, isPublic/userId on spots,
+    //     new rodPresets table — no data migration needed
+    this.version(4).stores({
+      trips: '++id, dateStart, spotId, tideStage, fishingType',
+      conditions: '++id, tripId, at',
+      rigPresets: '++id, slot',
+      egiPresets: '++id, slot',
+      catchEvents: '++id, tripId, at, rigSlot, egiSlot, species',
+      trackPoints: '++id, tripId, at',
+      outbox: '++id, createdAt, entityType',
+      settings: '++id, key',
+      spots: '++id, lat, lng, createdAt',
+      rodPresets: '++id, slot',
+    })
+
+    // v5: add isPublic index to spots for community filtering
+    this.version(5).stores({
+      trips: '++id, dateStart, spotId, tideStage, fishingType',
+      conditions: '++id, tripId, at',
+      rigPresets: '++id, slot',
+      egiPresets: '++id, slot',
+      catchEvents: '++id, tripId, at, rigSlot, egiSlot, species',
+      trackPoints: '++id, tripId, at',
+      outbox: '++id, createdAt, entityType',
+      settings: '++id, key',
+      spots: '++id, lat, lng, createdAt, isPublic',
+      rodPresets: '++id, slot',
+    })
   }
 }
 
-export const db = new FishingLogDB();
+export const db = new FishingLogDB()

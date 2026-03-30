@@ -1,226 +1,412 @@
-// src/pages/HomePage.tsx
-// 홈 레이아웃 정리 (TodayBar에만 출조 시작/종료 유지, 빠른 실행의 중복 버튼 제거)
-// 2025-11-03 office 2차
-
 import { useEffect, useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import {
-  db,
-  Trip,
-  ConditionSnapshot,
-  RigPreset,
-  EgiPreset,
-  CatchEvent,
-} from '@/db/schema'
-import { TodayBar } from '@/components/TodayBar'
-import { ConditionsSnapshot } from '@/components/ConditionsSnapshot'
-import { PresetSlots } from '@/components/PresetSlots'
-import { LiveCatchButton } from '@/components/LiveCatchButton'
-import { RecentEvents } from '@/components/RecentEvents'
-import { MiniInsight } from '@/components/MiniInsight'
-import { WeatherCard } from '@/components/WeatherCard'
-import { TideCard } from '@/components/TideCard'
-import { useGeolocation } from '@/hooks/useGeolocation'
-import { useToast } from '@/hooks/use-toast'
-import { queueForSync } from '@/lib/sync'
+import { db, Trip } from '@/db/schema'
 import { Button } from '@/components/ui/button'
-import { MapPin, Plus } from 'lucide-react'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Separator } from '@/components/ui/separator'
+import PresetEditor, { PresetValues } from '@/components/presets/PresetEditor'
+import { cn } from '@/lib/utils'
+import { toast } from 'sonner'
 
-export default function HomePage() {
-  const { position, error: geoError } = useGeolocation()
-  const { toast } = useToast()
+type RigPresetRow = {
+  id?: number
+  slot: 'A' | 'B' | 'C'
+  name?: string
+  sinkerMode?: 'step' | 'custom'
+  sinkerValue?: number | null
+  sinkerPair?: [number, number] | null
+  branchMode?: 'step' | 'custom'
+  branchValue?: number | null
+  branchPair?: [number, number] | null
+  notes?: string
+}
 
-  // ── 프리셋 활성 슬롯 상태 (A/B/C)
-  const [activeRigSlot, setActiveRigSlot] = useState<'A' | 'B' | 'C'>('A')
-  const [activeEgiSlot, setActiveEgiSlot] = useState<'A' | 'B' | 'C'>('A')
+const TARGET_SLOT: RigPresetRow['slot'] = 'A'
 
-  // ── 현재 진행중 Trip (dateEnd가 없는 최신 트립)
-  const currentTrip = useLiveQuery(async () => {
-    const trips = await db.trips.toArray()
-    const active = trips
-      .filter((t) => !t.dateEnd)
-      .sort(
-        (a, b) =>
-          new Date(b.dateStart).getTime() - new Date(a.dateStart).getTime()
-      )[0]
-    return active ?? null
-  }, []) as Trip | null
+function rowToValues(row?: RigPresetRow | null): PresetValues {
+  if (!row) {
+    return {
+      sinkerStepType: 'step',
+      sinkerStepValue: 0,
+      branchLenType: 'step',
+      branchLenValue: 0,
+    }
+  }
+  return {
+    sinkerStepType: row.sinkerMode ?? 'step',
+    sinkerStepValue:
+      (row.sinkerMode ?? 'step') === 'step' ? (row.sinkerValue ?? undefined) : undefined,
+    sinkerCustomPair:
+      (row.sinkerMode ?? 'step') === 'custom' ? (row.sinkerPair ?? undefined) : undefined,
+    branchLenType: row.branchMode ?? 'step',
+    branchLenValue:
+      (row.branchMode ?? 'step') === 'step' ? (row.branchValue ?? undefined) : undefined,
+    branchLenCustomPair:
+      (row.branchMode ?? 'step') === 'custom' ? (row.branchPair ?? undefined) : undefined,
+  }
+}
 
-  // ── 프리셋 / 최근 이벤트 / 전체 이벤트/컨디션
-  const rigPresets = useLiveQuery(() => db.rigPresets.toArray(), []) as
-    | RigPreset[]
-    | undefined
-  const egiPresets = useLiveQuery(() => db.egiPresets.toArray(), []) as
-    | EgiPreset[]
-    | undefined
+function valuesToPartialRow(v: PresetValues): Partial<RigPresetRow> {
+  return {
+    sinkerMode: v.sinkerStepType,
+    sinkerValue: v.sinkerStepType === 'step' ? (v.sinkerStepValue ?? 0) : undefined,
+    sinkerPair: v.sinkerStepType === 'custom' ? (v.sinkerCustomPair ?? [0, 0]) : null,
+    branchMode: v.branchLenType,
+    branchValue: v.branchLenType === 'step' ? (v.branchLenValue ?? 0) : undefined,
+    branchPair: v.branchLenType === 'custom' ? (v.branchLenCustomPair ?? [0, 0]) : null,
+  }
+}
 
-  const recentEvents = useLiveQuery(async () => {
-    const arr = await db.catchEvents.toArray()
-    return arr
-      .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
-      .slice(0, 10)
-  }, []) as CatchEvent[] | undefined
+function pretty(row?: RigPresetRow | null) {
+  const sinker =
+    row?.sinkerMode === 'custom'
+      ? row.sinkerPair
+        ? `${row.sinkerPair[0]} / ${row.sinkerPair[1]} cm`
+        : '-'
+      : row?.sinkerValue != null
+        ? `${row.sinkerValue} cm`
+        : '-'
 
-  const allEvents = useLiveQuery(() => db.catchEvents.toArray(), []) as
-    | CatchEvent[]
-    | undefined
-  const allConditions = useLiveQuery(() => db.conditions.toArray(), []) as
-    | ConditionSnapshot[]
-    | undefined
+  const branch =
+    row?.branchMode === 'custom'
+      ? row.branchPair
+        ? `${row.branchPair[0]} / ${row.branchPair[1]} cm`
+        : '-'
+      : row?.branchValue != null
+        ? `${row.branchValue} cm`
+        : '-'
 
-  const latestConditionForTrip: ConditionSnapshot | null = useMemo(() => {
-    if (!currentTrip?.id || !allConditions?.length) return null
-    const mine = allConditions.filter((c) => c.tripId === currentTrip.id)
-    if (mine.length === 0) return null
-    return mine.sort(
-      (a, b) => new Date(b.at).getTime() - new Date(a.at).getTime()
-    )[0]
-  }, [currentTrip?.id, allConditions])
+  return { sinker, branch }
+}
 
-  // ── 핸들러: 출조 시작/종료 → TodayBar에서만 사용 (홈 빠른 실행에서는 제거)
-  const handleStartTrip = async () => {
+// --- StartTripDialog ---
+
+type FishingType = 'walking' | 'boat'
+type Species = 'cuttle' | 'webfoot' | 'bigfin'
+type BoatPosition = 'bow' | 'middle' | 'stern'
+
+const SPECIES_LABELS: Record<Species, string> = {
+  cuttle: '갑오징어',
+  webfoot: '주꾸미',
+  bigfin: '무늬오징어',
+}
+
+const BOAT_POSITION_LABELS: Record<BoatPosition, string> = {
+  bow: '선수',
+  middle: '가운데',
+  stern: '선미',
+}
+
+interface StartTripDialogProps {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onStart: (tripData: Partial<Trip>) => Promise<void>
+}
+
+function StartTripDialog({ open, onOpenChange, onStart }: StartTripDialogProps) {
+  const [fishingType, setFishingType] = useState<FishingType>('walking')
+  const [species, setSpecies] = useState<Species | null>(null)
+  const [boatCompany, setBoatCompany] = useState('')
+  const [boatPosition, setBoatPosition] = useState<BoatPosition | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  const reset = () => {
+    setFishingType('walking')
+    setSpecies(null)
+    setBoatCompany('')
+    setBoatPosition(null)
+  }
+
+  const handleStart = async () => {
+    if (!species) return
+    setLoading(true)
     try {
-      const base: Trip = {
-        dateStart: new Date(),
-        lat: position?.lat,
-        lng: position?.lng,
+      const tripData: Partial<Trip> = {
+        fishingType,
+        species,
+        ...(fishingType === 'boat' && {
+          boatCompany: boatCompany || undefined,
+          boatPosition: boatPosition ?? undefined,
+        }),
       }
-      const id = await db.trips.add(base)
-      await queueForSync('trip', { action: 'start', id, ...base })
-      toast({ title: '출조 시작', description: '안전한 낚시 되세요!' })
-    } catch (e) {
-      console.error(e)
-      toast({ title: '출조 시작 실패', variant: 'destructive' })
+      await onStart(tripData)
+      reset()
+      onOpenChange(false)
+    } finally {
+      setLoading(false)
     }
   }
-
-  const handleEndTrip = async () => {
-    try {
-      if (!currentTrip?.id) return
-      const dateEnd = new Date()
-      await db.trips.update(currentTrip.id, { dateEnd })
-      await queueForSync('trip', { action: 'end', id: currentTrip.id, dateEnd })
-      toast({
-        title: '출조 종료',
-        description: '수고하셨어요. 기록은 나중에 이어서 편집할 수 있어요.',
-      })
-    } catch (e) {
-      console.error(e)
-      toast({ title: '출조 종료 실패', variant: 'destructive' })
-    }
-  }
-
-  const handleSelectSpot = () => {
-    window.location.href = '/map?focus=me'
-  }
-
-  const handleNewPreset = () => {
-    window.location.href = '/presets'
-  }
-
-  const handleRefreshConditions = () => {
-    toast({ title: '조건 갱신', description: 'API 연동 후 자동 갱신됩니다' })
-  }
-
-  const handleEditConditions = () => {
-    toast({ title: '조건 수정', description: '수동 입력 기능은 곧 추가됩니다' })
-  }
-
-  // 위치 오류 안내 (옵션)
-  useEffect(() => {
-    if (geoError) {
-      toast({
-        title: '위치 접근 실패',
-        description: geoError,
-        variant: 'destructive',
-      })
-    }
-  }, [geoError, toast])
 
   return (
-    <div className="min-h-screen bg-background pb-20 px-4 md:px-6 max-w-5xl mx-auto">
-      {/* 섹션 간격은 gap으로만 관리 */}
-      <div className="pt-3 flex flex-col gap-3 md:gap-4">
-        {/* TodayBar (여기에만 출조 시작/종료 버튼 존재) */}
-        <TodayBar
-          currentTrip={currentTrip}
-          onStartTrip={handleStartTrip}
-          onEndTrip={handleEndTrip}
-          onSelectSpot={handleSelectSpot}
-        />
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-sm max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>출조 시작</DialogTitle>
+        </DialogHeader>
 
-        {/* 빠른 실행: 포인트 선택 / 갑오징어 기록 / 프리셋 추가·편집 */}
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-          <Button
-            onClick={handleSelectSpot}
-            className="w-full"
-            size="lg"
-            variant="secondary"
-          >
-            <MapPin className="w-4 h-4 mr-2" /> 포인트 선택
-          </Button>
-
-          <LiveCatchButton
-            tripId={currentTrip?.id ?? null}
-            rigSlot={activeRigSlot}
-            egiSlot={activeEgiSlot}
-          />
-
-          <Button
-            onClick={handleNewPreset}
-            className="w-full"
-            size="lg"
-            variant="outline"
-          >
-            <Plus className="w-4 h-4 mr-2" /> 프리셋 추가/편집
-          </Button>
-        </div>
-
-        {/* 현황 스냅샷 */}
-        <ConditionsSnapshot
-          condition={latestConditionForTrip}
-          lastFetched={latestConditionForTrip?.at}
-          onRefresh={handleRefreshConditions}
-          onEdit={handleEditConditions}
-        />
-
-        {/* 날씨/물때 2열 */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-          <WeatherCard />
-          <TideCard />
-        </div>
-
-        {/* 프리셋 슬롯 */}
-        <PresetSlots
-          rigPresets={rigPresets ?? []}
-          egiPresets={egiPresets ?? []}
-          activeRigSlot={activeRigSlot}
-          activeEgiSlot={activeEgiSlot}
-          onRigSlotChange={setActiveRigSlot}
-          onEgiSlotChange={setActiveEgiSlot}
-        />
-
-        {/* 최근 이벤트 & 미니 인사이트 */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <div className="lg:col-span-2">
-            <RecentEvents
-              events={recentEvents ?? []}
-              rigPresets={rigPresets ?? []}
-              egiPresets={egiPresets ?? []}
-            />
-          </div>
+        <div className="space-y-5">
+          {/* Fishing type pill toggle */}
           <div>
-            <MiniInsight
-              events={allEvents ?? []}
-              conditions={allConditions ?? []}
-              currentTideStage={currentTrip?.tideStage}
-            />
+            <Label className="text-sm text-muted-foreground mb-2 block">낚시 유형</Label>
+            <div className="bg-muted rounded-full p-1 flex gap-1">
+              {(['walking', 'boat'] as const).map((type) => (
+                <button
+                  key={type}
+                  type="button"
+                  onClick={() => setFishingType(type)}
+                  className={cn(
+                    'flex-1 rounded-full py-2 text-sm font-medium transition-all',
+                    fishingType === type
+                      ? 'bg-background shadow text-foreground'
+                      : 'text-muted-foreground hover:text-foreground'
+                  )}
+                >
+                  {type === 'walking' ? '워킹' : '선상'}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
-      </div>
 
-      {/* BottomNav 여유 공간 */}
-      <div className="h-24" />
+          {/* Species selector */}
+          <div>
+            <Label className="text-sm text-muted-foreground mb-2 block">어종</Label>
+            <div className="grid grid-cols-3 gap-2">
+              {(Object.entries(SPECIES_LABELS) as [Species, string][]).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setSpecies(key)}
+                  className={cn(
+                    'h-14 rounded-lg border text-sm font-medium transition-all',
+                    species === key
+                      ? 'border-primary bg-primary text-primary-foreground'
+                      : 'border-border bg-background hover:bg-muted'
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Boat section (conditional) */}
+          {fishingType === 'boat' && (
+            <div className="space-y-3 animate-in slide-in-from-top-2 duration-200">
+              <div>
+                <Label htmlFor="boatCompany">선사명</Label>
+                <Input
+                  id="boatCompany"
+                  value={boatCompany}
+                  onChange={(e) => setBoatCompany(e.target.value)}
+                  placeholder="선사명 입력"
+                  className="h-12 mt-1"
+                />
+              </div>
+
+              <div>
+                <Label className="text-sm text-muted-foreground mb-2 block">좌석 위치</Label>
+                <div className="grid grid-cols-3 gap-2">
+                  {(Object.entries(BOAT_POSITION_LABELS) as [BoatPosition, string][]).map(
+                    ([key, label]) => (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => setBoatPosition(key)}
+                        className={cn(
+                          'h-12 rounded-lg border text-sm font-medium transition-all',
+                          boatPosition === key
+                            ? 'border-primary bg-primary text-primary-foreground'
+                            : 'border-border bg-background hover:bg-muted'
+                        )}
+                      >
+                        {label}
+                      </button>
+                    )
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          <Button
+            onClick={handleStart}
+            disabled={!species || loading}
+            className="w-full h-14 text-base font-semibold"
+          >
+            출조 시작
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// --- HomePage ---
+
+export default function HomePage() {
+  const [presetOpen, setPresetOpen] = useState(false)
+  const [tripOpen, setTripOpen] = useState(false)
+
+  const rigPreset = useLiveQuery(async () => {
+    return await db.rigPresets.where('slot').equals(TARGET_SLOT).first()
+  }, [])
+
+  useEffect(() => {
+    ;(async () => {
+      const exists = await db.rigPresets.where('slot').equals(TARGET_SLOT).first()
+      if (!exists) {
+        await db.rigPresets.add({
+          slot: TARGET_SLOT,
+          name: '슬롯 A',
+          sinkerMode: 'step',
+          sinkerValue: 0,
+          branchMode: 'step',
+          branchValue: 0,
+        })
+      }
+    })().catch(console.error)
+  }, [])
+
+  const values = useMemo(() => rowToValues(rigPreset ?? undefined), [rigPreset])
+  const view = useMemo(() => pretty(rigPreset ?? undefined), [rigPreset])
+
+  const handleSavePreset = async (v: PresetValues) => {
+    const patch = valuesToPartialRow(v)
+    // Cast: null values are accepted by Dexie at runtime for clearing fields
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const dexiePatch = patch as any
+    if (rigPreset?.id) {
+      await db.rigPresets.update(rigPreset.id, dexiePatch)
+    } else {
+      await db.rigPresets.add({ slot: TARGET_SLOT, ...dexiePatch })
+    }
+    toast.success('프리셋 저장 완료')
+    setPresetOpen(false)
+  }
+
+  const handleStartTrip = async (tripData: Partial<Trip>) => {
+    const id = await db.trips.add({
+      dateStart: new Date(),
+      ...tripData,
+    } as Trip)
+    toast.success('출조가 시작되었습니다')
+    return id
+  }
+
+  return (
+    <div className="p-4 space-y-6">
+      {/* Start Trip CTA */}
+      <Button
+        onClick={() => setTripOpen(true)}
+        className="w-full h-14 text-base font-semibold"
+      >
+        출조 시작
+      </Button>
+
+      <StartTripDialog
+        open={tripOpen}
+        onOpenChange={setTripOpen}
+        onStart={handleStartTrip}
+      />
+
+      {/* Preset card */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="text-lg">현재 프리셋 (슬롯 {TARGET_SLOT})</CardTitle>
+          <Dialog open={presetOpen} onOpenChange={setPresetOpen}>
+            <DialogTrigger asChild>
+              <Button size="sm" variant="outline">
+                프리셋 편집
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-2xl">
+              <DialogHeader>
+                <DialogTitle>프리셋 편집</DialogTitle>
+              </DialogHeader>
+              <PresetEditor
+                initial={values}
+                stepRange={{ min: 0, max: 200 }}
+                onSave={handleSavePreset}
+                onCancel={() => setPresetOpen(false)}
+              />
+            </DialogContent>
+          </Dialog>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-2 gap-6">
+            <div>
+              <Label className="text-sm text-muted-foreground">봉돌단차</Label>
+              <div className="text-base">{view.sinker}</div>
+            </div>
+            <div>
+              <Label className="text-sm text-muted-foreground">가지줄길이</Label>
+              <div className="text-base">{view.branch}</div>
+            </div>
+          </div>
+          <Separator />
+          <p className="text-sm text-muted-foreground">
+            * 5cm 단위 또는 사용자 지정(숫자 2개)을 지원합니다.
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">출조 세팅 (프리셋 적용 예시)</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <PresetConsumerDemo
+            sinkerMode={rigPreset?.sinkerMode ?? 'step'}
+            sinkerValue={rigPreset?.sinkerValue ?? 0}
+            sinkerPair={rigPreset?.sinkerPair ?? null}
+            branchMode={rigPreset?.branchMode ?? 'step'}
+            branchValue={rigPreset?.branchValue ?? 0}
+            branchPair={rigPreset?.branchPair ?? null}
+          />
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
+function PresetConsumerDemo(props: {
+  sinkerMode: 'step' | 'custom'
+  sinkerValue: number
+  sinkerPair: [number, number] | null
+  branchMode: 'step' | 'custom'
+  branchValue: number
+  branchPair: [number, number] | null
+}) {
+  const sinkerNumbers =
+    props.sinkerMode === 'custom'
+      ? (props.sinkerPair ?? [0, 0])
+      : [props.sinkerValue, props.sinkerValue]
+
+  const branchNumbers =
+    props.branchMode === 'custom'
+      ? (props.branchPair ?? [0, 0])
+      : [props.branchValue, props.branchValue]
+
+  return (
+    <div className="text-sm">
+      <div>
+        적용 봉돌단차(cm): {sinkerNumbers[0]} / {sinkerNumbers[1]}
+      </div>
+      <div>
+        적용 가지줄길이(cm): {branchNumbers[0]} / {branchNumbers[1]}
+      </div>
+      <p className="text-muted-foreground mt-2">
+        * custom이면 두 값을 모두 사용, step이면 단일 값을 복제해 사용합니다.
+      </p>
     </div>
   )
 }

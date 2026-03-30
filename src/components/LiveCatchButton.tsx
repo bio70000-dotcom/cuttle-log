@@ -1,48 +1,53 @@
-import { useState } from 'react';
-import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import { Switch } from '@/components/ui/switch';
-import { db, CatchEvent } from '@/db/schema';
-import { queueForSync } from '@/lib/sync';
-import { useToast } from '@/hooks/use-toast';
-import { Fish } from 'lucide-react';
+import { useRef, useState } from 'react'
+import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import { Switch } from '@/components/ui/switch'
+import { db, CatchEvent } from '@/db/schema'
+import { queueForSync } from '@/lib/sync'
+import { compressImage } from '@/lib/imageUtils'
+import { Camera, Fish, X } from 'lucide-react'
+import { toast } from 'sonner'
 
 interface LiveCatchButtonProps {
-  tripId: number | null;
-  rigSlot: 'A' | 'B' | 'C';
-  egiSlot: 'A' | 'B' | 'C';
-  currentLat?: number;
-  currentLng?: number;
-  conditionId?: number;
+  tripId: number | null
+  rigSlot: 'A' | 'B' | 'C'
+  egiSlot: 'A' | 'B' | 'C'
+  currentLat?: number
+  currentLng?: number
+  conditionId?: number
 }
 
-export function LiveCatchButton({ tripId, rigSlot, egiSlot, currentLat, currentLng, conditionId }: LiveCatchButtonProps) {
-  const [showDetails, setShowDetails] = useState(false);
+export function LiveCatchButton({
+  tripId,
+  rigSlot,
+  egiSlot,
+  currentLat,
+  currentLng,
+  conditionId,
+}: LiveCatchButtonProps) {
+  const [showDetails, setShowDetails] = useState(false)
   const [formData, setFormData] = useState({
     sizeCm: '',
     weight: '',
     kept: true,
     depth: '',
     note: '',
-  });
-  const { toast } = useToast();
+  })
+  const [photoThumb, setPhotoThumb] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const handleQuickLog = async () => {
     if (!tripId) {
-      toast({
-        title: '출조를 먼저 시작해주세요',
-        variant: 'destructive',
-      });
-      return;
+      toast.error('출조를 먼저 시작해주세요')
+      return
     }
 
     try {
-      // Vibrate if supported
       if ('vibrate' in navigator) {
-        navigator.vibrate(50);
+        navigator.vibrate(50)
       }
 
       const catchEvent: Omit<CatchEvent, 'id'> = {
@@ -53,32 +58,21 @@ export function LiveCatchButton({ tripId, rigSlot, egiSlot, currentLat, currentL
         lat: currentLat,
         lng: currentLng,
         conditionId,
-      };
+      }
 
-      const id = await db.catchEvents.add(catchEvent);
-      await queueForSync('catchEvent', { ...catchEvent, id });
+      const id = await db.catchEvents.add(catchEvent)
+      await queueForSync('catchEvent', { ...catchEvent, id })
 
-      toast({
-        title: '갑오징어 기록 완료',
-        description: `${new Date().toLocaleTimeString('ko-KR')} - 단차${rigSlot} · 에기${egiSlot}`,
-      });
+      toast.success(`갑오징어 기록 완료 — ${new Date().toLocaleTimeString('ko-KR')} 단차${rigSlot} · 에기${egiSlot}`)
     } catch (error) {
-      console.error('Failed to log catch:', error);
-      toast({
-        title: '기록 실패',
-        description: '다시 시도해주세요',
-        variant: 'destructive',
-      });
+      toast.error('기록 실패. 다시 시도해주세요')
     }
-  };
+  }
 
   const handleDetailedLog = async () => {
     if (!tripId) {
-      toast({
-        title: '출조를 먼저 시작해주세요',
-        variant: 'destructive',
-      });
-      return;
+      toast.error('출조를 먼저 시작해주세요')
+      return
     }
 
     try {
@@ -95,27 +89,34 @@ export function LiveCatchButton({ tripId, rigSlot, egiSlot, currentLat, currentL
         kept: formData.kept,
         depth: formData.depth ? parseFloat(formData.depth) : undefined,
         note: formData.note || undefined,
-      };
+        photoThumb: photoThumb ?? undefined,
+      }
 
-      const id = await db.catchEvents.add(catchEvent);
-      await queueForSync('catchEvent', { ...catchEvent, id });
+      const id = await db.catchEvents.add(catchEvent)
+      await queueForSync('catchEvent', { ...catchEvent, id })
 
-      toast({
-        title: '갑오징어 기록 완료',
-        description: formData.sizeCm ? `${formData.sizeCm}cm` : undefined,
-      });
+      toast.success(formData.sizeCm ? `갑오징어 기록 완료 — ${formData.sizeCm}cm` : '갑오징어 기록 완료')
 
-      setShowDetails(false);
-      setFormData({ sizeCm: '', weight: '', kept: true, depth: '', note: '' });
+      setShowDetails(false)
+      setFormData({ sizeCm: '', weight: '', kept: true, depth: '', note: '' })
+      setPhotoThumb(null)
     } catch (error) {
-      console.error('Failed to log catch:', error);
-      toast({
-        title: '기록 실패',
-        description: '다시 시도해주세요',
-        variant: 'destructive',
-      });
+      toast.error('기록 실패. 다시 시도해주세요')
     }
-  };
+  }
+
+  const handlePhotoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    try {
+      const compressed = await compressImage(file)
+      setPhotoThumb(compressed)
+    } catch {
+      toast.error('사진 처리 실패')
+    }
+    // Reset input so same file can be re-selected
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
 
   return (
     <>
@@ -123,8 +124,8 @@ export function LiveCatchButton({ tripId, rigSlot, egiSlot, currentLat, currentL
         size="lg"
         onClick={handleQuickLog}
         onContextMenu={(e) => {
-          e.preventDefault();
-          setShowDetails(true);
+          e.preventDefault()
+          setShowDetails(true)
         }}
         className="w-full h-20 text-lg font-bold"
         disabled={!tripId}
@@ -132,9 +133,7 @@ export function LiveCatchButton({ tripId, rigSlot, egiSlot, currentLat, currentL
         <Fish className="w-6 h-6 mr-2" />
         + 갑오징어 기록
       </Button>
-      <p className="text-xs text-center text-muted-foreground mt-1">
-        길게 눌러 상세 입력
-      </p>
+      <p className="text-xs text-center text-muted-foreground mt-1">길게 눌러 상세 입력</p>
 
       <Dialog open={showDetails} onOpenChange={setShowDetails}>
         <DialogContent>
@@ -151,6 +150,7 @@ export function LiveCatchButton({ tripId, rigSlot, egiSlot, currentLat, currentL
                   value={formData.sizeCm}
                   onChange={(e) => setFormData({ ...formData, sizeCm: e.target.value })}
                   placeholder="28"
+                  className="h-12 mt-1"
                 />
               </div>
               <div>
@@ -161,6 +161,7 @@ export function LiveCatchButton({ tripId, rigSlot, egiSlot, currentLat, currentL
                   value={formData.weight}
                   onChange={(e) => setFormData({ ...formData, weight: e.target.value })}
                   placeholder="500"
+                  className="h-12 mt-1"
                 />
               </div>
             </div>
@@ -173,6 +174,7 @@ export function LiveCatchButton({ tripId, rigSlot, egiSlot, currentLat, currentL
                 value={formData.depth}
                 onChange={(e) => setFormData({ ...formData, depth: e.target.value })}
                 placeholder="15"
+                className="h-12 mt-1"
               />
             </div>
 
@@ -185,6 +187,47 @@ export function LiveCatchButton({ tripId, rigSlot, egiSlot, currentLat, currentL
               />
             </div>
 
+            {/* Photo capture */}
+            <div>
+              <Label>사진</Label>
+              <div className="mt-1">
+                {photoThumb ? (
+                  <div className="relative inline-block">
+                    <img
+                      src={photoThumb}
+                      alt="catch thumbnail"
+                      className="w-24 h-24 object-cover rounded-lg border"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setPhotoThumb(null)}
+                      className="absolute -top-2 -right-2 bg-destructive text-destructive-foreground rounded-full w-5 h-5 flex items-center justify-center"
+                      aria-label="사진 삭제"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ) : (
+                  <label
+                    htmlFor="photo-input"
+                    className="flex flex-col items-center justify-center w-24 h-24 border-2 border-dashed border-border rounded-lg cursor-pointer hover:bg-muted transition-colors"
+                  >
+                    <Camera className="w-6 h-6 text-muted-foreground" />
+                    <span className="text-xs text-muted-foreground mt-1">사진 촬영</span>
+                  </label>
+                )}
+                <input
+                  ref={fileInputRef}
+                  id="photo-input"
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  className="hidden"
+                  onChange={handlePhotoSelect}
+                />
+              </div>
+            </div>
+
             <div>
               <Label htmlFor="note">메모</Label>
               <Textarea
@@ -193,15 +236,16 @@ export function LiveCatchButton({ tripId, rigSlot, egiSlot, currentLat, currentL
                 onChange={(e) => setFormData({ ...formData, note: e.target.value })}
                 placeholder="특이사항 기록..."
                 rows={3}
+                className="mt-1"
               />
             </div>
 
-            <Button onClick={handleDetailedLog} className="w-full">
+            <Button onClick={handleDetailedLog} className="w-full h-12">
               기록 완료
             </Button>
           </div>
         </DialogContent>
       </Dialog>
     </>
-  );
+  )
 }
